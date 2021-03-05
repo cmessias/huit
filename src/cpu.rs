@@ -4,6 +4,7 @@ use super::constants::hardware::{MEMORY_SIZE, ENTRY_POINT, SCREEN_HEIGHT, SCREEN
 use std::collections::VecDeque;
 use std::fs::File;
 use std::io::Read;
+use rand::Rng;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Pixel {
@@ -11,45 +12,31 @@ enum Pixel {
     White,
 }
 
-fn flip(pixel: &Pixel) -> Pixel {
-    match pixel {
-        Pixel::White => Pixel::Black,
-        Pixel::Black => Pixel::White,
+impl Pixel {
+    fn flip(&self) -> Pixel {
+        match &self {
+            Pixel::White => Pixel::Black,
+            Pixel::Black => Pixel::White,
+        }
     }
 }
 
-struct Opcode(u16);
+type Instruction = Box<dyn FnOnce(&mut Cpu)>;
 
-struct Address(u16);
-
-
-fn to_nnn(opcode: Opcode) -> u16 {
-    return opcode.0 & 0x0FFF;
+fn to_nnn(opcode: u16) -> usize {
+    return (opcode & 0x0FFF) as usize;
 }
 
-fn to_nn(opcode: Opcode) -> u8 {
-    return (opcode.0 & 0x00FF) as u8;
+fn to_nn(opcode: u16) -> u8 {
+    return (opcode & 0x00FF) as u8;
 }
 
-#[derive(Clone, Copy, Debug)]
-pub enum Operand {
-    None,
-    X(usize),
-    XY(usize, usize),
-    XNN(usize, u8),
-    NNN(u16),
-    XYN(usize, usize, usize),
+fn to_x(x: u8) -> usize {
+    return x as usize;
 }
 
-struct Instruction {
-    function: fn(&mut Cpu, Operand),
-    operand: Operand,
-}
-
-impl Instruction {
-    pub fn new(function: fn(&mut Cpu, Operand), operand: Operand) -> Instruction {
-        Instruction { function, operand }
-    }
+fn to_y(y: u8) -> usize {
+    return y as usize;
 }
 
 pub struct Cpu {
@@ -58,7 +45,7 @@ pub struct Cpu {
     pc: usize,
     idx: usize,
     stack: VecDeque<usize>,
-    registers: [u8; 16],
+    v: [u8; 16],
     _delay_timer: u8,
     _sound_timer: u8,
 }
@@ -71,7 +58,7 @@ impl Cpu {
             pc: ENTRY_POINT,
             idx: 0,
             stack: VecDeque::with_capacity(STACK_SIZE),
-            registers: [0; 16],
+            v: [0; 16],
             _delay_timer: 0,
             _sound_timer: 0,
         }
@@ -82,12 +69,8 @@ impl Cpu {
         rom.read(buffer);
     }
     pub fn run(&mut self) {
-        for i in 0..5000 {
-            let opcode = self.fetch();
-            let instruction = self.decode(opcode);
-            self.execute(instruction);
-
-
+        for i in 0..20 {
+            self.run_cycle();
         }
 
         for y in 0..SCREEN_HEIGHT {
@@ -102,165 +85,68 @@ impl Cpu {
         }
     }
 
-    fn fetch(&mut self) -> Opcode {
+    fn run_cycle(&mut self) {
+        let opcode = self.fetch();
+        let instruction = self.decode(opcode);
+        self.execute(instruction);
+    }
+
+    fn fetch(&mut self) -> u16 {
         let byte1 = self.memory[self.pc] as u16;
         let byte2 = self.memory[self.pc + 1] as u16;
         let opcode = byte1 << 8 | byte2;
 
         self.pc += 2;
-        return Opcode(opcode);
+        return opcode;
+    }
+
+    fn decode(&self, opcode: u16) -> Instruction {
+        let a = ((opcode & 0xF000) >> 12) as u8;
+        let b = ((opcode & 0x0F00) >> 8) as u8;
+        let c = ((opcode & 0x00F0) >> 4) as u8;
+        let d = (opcode & 0x000F) as u8;
+
+        return match (a, b, c, d) {
+            (0, 0, 0xE, 0) => Box::new(|cpu| clr(cpu)),
+            (0, 0, 0xE, 0xE) => Box::new(|cpu| ret(cpu)),
+            (1, _, _, _) => Box::new(move |cpu| jmp(cpu, to_nnn(opcode))),
+            (2, _, _, _) => Box::new(move |cpu| call(cpu, to_nnn(opcode))),
+            (3, x, _, _) => Box::new(move |cpu| skipx_eq(cpu, to_x(x), to_nn(opcode))),
+            (4, x, _, _) => Box::new(move |cpu| skipx_neq(cpu, to_x(x), to_nn(opcode))),
+            (5, x, y, 0) => Box::new(move |cpu| skipxy_eq(cpu, to_x(x), to_y(y))),
+            (6, x, _, _) => Box::new(move |cpu| setx(cpu, to_x(x), to_nn(opcode))),
+            (7, x, _, _) => Box::new(move |cpu| addx(cpu, to_x(x), to_nn(opcode))),
+            (8, x, y, 0) => Box::new(move |cpu| setxy(cpu, to_x(x), to_y(y))),
+            (8, x, y, 1) => Box::new(move |cpu| orxy(cpu, to_x(x), to_y(y))),
+            (8, x, y, 2) => Box::new(move |cpu| andxy(cpu, to_x(x), to_y(y))),
+            (8, x, y, 3) => Box::new(move |cpu| xorxy(cpu, to_x(x), to_y(y))),
+            (8, x, y, 4) => Box::new(move |cpu| addxyc(cpu, to_x(x), to_y(y))),
+            (8, x, y, 5) => Box::new(move |cpu| subxy(cpu, to_x(x), to_y(y))),
+            (8, x, y, 6) => Box::new(move |cpu| shiftxyr(cpu, to_x(x), to_y(y))),
+            (8, x, y, 7) => Box::new(move |cpu| subyx(cpu, to_x(x), to_y(y))),
+            (8, x, y, 0xE) => Box::new(move |cpu| shiftxyl(cpu, to_x(x), to_y(y))),
+            (9, x, y, 0) => Box::new(move |cpu| skipxy_neq(cpu, to_x(x), to_y(y))),
+            (0xA, _, _, _) => Box::new(move |cpu| seti(cpu, to_nnn(opcode))),
+            (0xB, _, _, _) => Box::new(move |cpu| jmp0(cpu, to_nnn(opcode))),
+            (0xD, x, y, n) => Box::new(move |cpu| draw(cpu, x as usize, y as usize, n as usize)),
+            (0xF, x, 0x1, 0xE) => Box::new(move |cpu| addi(cpu, to_x(x))),
+            (0xF, x, 0x3, 0x3) => Box::new(move |cpu| bcd(cpu, to_x(x))),
+            (0xF, x, 0x5, 0x5) => Box::new(move |cpu| stxi(cpu, to_x(x))),
+            (0xF, x, 0x6, 0x5) => Box::new(move |cpu| ldxi(cpu, to_x(x))),
+            _ => panic!("unknown instruction: {}", opcode)
+        };
+    }
+
+    fn execute(&mut self, instruction: Instruction) {
+        instruction(self);
     }
 
 
-    fn decode(&mut self, opcode: Opcode) -> Instruction {
-        let a = ((opcode.0 & 0xF000) >> 12) as u8;
-        let b = ((opcode.0 & 0x0F00) >> 8) as u8;
-        let c = ((opcode.0 & 0x00F0) >> 4) as u8;
-        let d = (opcode.0 & 0x000F) as u8;
-
-        match (a, b, c, d) {
-            (0, 0, 0xE, 0) => Instruction { function: Cpu::clear, operand: Operand::None },
-            (1, _, _, _) => Instruction { function: Cpu::jmp, operand: Operand::NNN(to_nnn(opcode)) },
-            (6, x, _, _) => Instruction { function: Cpu::setr, operand: Operand::XNN(x as usize, to_nn(opcode)) },
-            (7, x, _, _) => Instruction { function: Cpu::add, operand: Operand::XNN(x as usize, to_nn(opcode)) },
-            (0xA, _, _, _) => Instruction { function: Cpu::seti, operand: Operand::NNN(to_nnn(opcode)) },
-            (0xD, x, y, n) => Instruction { function: Cpu::draw, operand: Operand::XYN(x as usize, y as usize, n as usize) },
-            _ => panic!("unknown instruction: {}", opcode.0)
-        }
-    }
-
-    fn execute(&mut self, inst: Instruction) {
-        (inst.function)(self, inst.operand);
-    }
-
-    fn clear(&mut self, _: Operand) {
-        println!("screen clear");
-        for i in 0..(SCREEN_HEIGHT * SCREEN_WIDTH) {
-            self.display[i] = Pixel::White;
-        }
-    }
-
-    fn jmp(&mut self, op: Operand) {
-        if let Operand::NNN(nnn) = op {
-            self.pc = nnn as usize;
-        }
-    }
-
-    fn call(&mut self, op: Operand) {
-        if let Operand::NNN(nnn) = op {
-            println!("calling function at {}", nnn);
-            self.stack.push_front(self.pc);
-            self.pc = nnn as usize;
-        }
-    }
-
-    fn ret(&mut self, _op: Operand) {
-        if let Some(ret_addr) = self.stack.pop_front() {
-            self.pc = ret_addr;
-        }
-    }
-
-    fn skipx_eq(&mut self, op: Operand) {
-        if let Operand::XNN(x, nn) = op {
-            if self.registers[x] == nn {
-                self.pc += 2;
-            }
-        }
-    }
-
-    fn skipx_neq(&mut self, op: Operand) {
-        if let Operand::XNN(x, nn) = op {
-            if self.registers[x] != nn {
-                self.pc += 2;
-            }
-        }
-    }
-
-    fn skipxy_eq(&mut self, op: Operand) {
-        if let Operand::XY(x, y) = op {
-            if self.registers[x] == self.registers[y] {
-                self.pc += 2;
-            }
-        }
-    }
-
-    fn skipxy_neq(&mut self, op: Operand) {
-        if let Operand::XY(x, y) = op {
-            if self.registers[x] != self.registers[y] {
-                self.pc += 2;
-            }
-        }
-    }
-
-    fn setr(&mut self, op: Operand) {
-        if let Operand::XNN(x, nn) = op {
-            self.registers[x] = nn;
-        }
-    }
-
-    fn add(&mut self, op: Operand) {
-        if let Operand::XNN(x, nn) = op {
-            self.registers[x] += nn;
-        }
-    }
-
-    fn seti(&mut self, op: Operand) {
-        if let Operand::NNN(nnn) = op {
-            self.idx = nnn as usize;
-        }
-    }
-
-    fn draw(&mut self, op: Operand) {
-        if let Operand::XYN(x, y, n) = op {
-            println!("x: {}, y: {}, SW: {}, SH: {}", x, y, SCREEN_WIDTH as u8, SCREEN_HEIGHT as u8);
-            let x = self.wrapping_x_on_screen(self.registers[x]);
-            let y = self.wrapping_y_on_screen(self.registers[y]);
-            println!("x: {}, y: {}, SW: {}, SH: {}", x, y, SCREEN_WIDTH as u8, SCREEN_HEIGHT as u8);
-            self.registers[0xF] = 0;
-
-            /*
-            (0..n).for_each(|_| {
-                let row = self.memory[self.idx + n];
-                for i in 0..8 {
-                    let sprite = (row >> (7 - i)) & 0x1;
-                    if sprite == 1 {
-                        if self.get_pixel(x, y) == Pixel::White {
-                            self.registers[0xF] = 1;
-                        }
-                        self.pixel_flip(x, y);
-                    }
-                    x += 1;
-                }
-                y += 1;
-            })
-             */
-
-            (0..n).for_each(|n: usize| {
-                if y + n >= SCREEN_HEIGHT {
-                    return;
-                }
-                let row = self.memory[self.idx + n];
-                (0..8).for_each(|i| {
-                    if x + i >= SCREEN_WIDTH {
-                        return;
-                    }
-                    let sprite = (row >> (7 - i)) & 0x1;
-                    if sprite == 1 {
-                        if self.get_pixel(x + i, y + n) == Pixel::White {
-                            self.registers[0xF] = 1;
-                        }
-                        self.pixel_flip(x + i, y + n);
-                    }
-                });
-            });
-        }
-    }
-
-    fn wrapping_x_on_screen(&self, x: u8) -> usize {
+    fn wrapx_on_screen(&self, x: u8) -> usize {
         (x % (SCREEN_WIDTH as u8)) as usize
     }
 
-    fn wrapping_y_on_screen(&self, y: u8) -> usize {
+    fn wrapy_on_screen(&self, y: u8) -> usize {
         (y % (SCREEN_HEIGHT as u8)) as usize
     }
 
@@ -274,28 +160,219 @@ impl Cpu {
 
     fn pixel_flip(&mut self, x: usize, y: usize) {
         let pixel = x + y * SCREEN_WIDTH;
-        self.display[pixel] = flip(&self.display[pixel])
+        self.display[pixel] = self.display[pixel].flip()
     }
 }
 
-
-trait Bla {
-    fn jump(&self, inst: Operand);
+fn clr(cpu: &mut Cpu) {
+    for i in 0..(SCREEN_HEIGHT * SCREEN_WIDTH) {
+        cpu.display[i] = Pixel::White;
+    }
 }
 
+fn jmp(cpu: &mut Cpu, nnn: usize) {
+    cpu.pc = nnn;
+}
+
+fn setx(cpu: &mut Cpu, x: usize, nn: u8) {
+    cpu.v[x] = nn;
+}
+
+fn addx(cpu: &mut Cpu, x: usize, nn: u8) {
+    cpu.v[x] += nn;
+}
+
+fn seti(cpu: &mut Cpu, nnn: usize) {
+    cpu.idx = nnn as usize;
+}
+
+fn draw(cpu: &mut Cpu, x: usize, y: usize, n: usize) {
+    let x = cpu.wrapx_on_screen(cpu.v[x]);
+    let y = cpu.wrapy_on_screen(cpu.v[y]);
+    cpu.v[0xF] = 0;
+
+    (0..n).for_each(|n: usize| {
+        if y + n >= SCREEN_HEIGHT {
+            return;
+        }
+        let row = cpu.memory[cpu.idx + n];
+        (0..8).for_each(|i| {
+            if x + i >= SCREEN_WIDTH {
+                return;
+            }
+            let sprite = (row >> (7 - i)) & 0x1;
+            if sprite == 1 {
+                if cpu.get_pixel(x + i, y + n) == Pixel::White {
+                    cpu.v[0xF] = 1;
+                }
+                cpu.pixel_flip(x + i, y + n);
+            }
+        });
+    });
+}
+
+fn call(cpu: &mut Cpu, nnn: usize) {
+    cpu.stack.push_front(cpu.pc);
+    cpu.pc = nnn;
+}
+
+fn ret(cpu: &mut Cpu) {
+    if let Some(ret_addr) = cpu.stack.pop_front() {
+        cpu.pc = ret_addr;
+    }
+}
+
+fn skipx_eq(cpu: &mut Cpu, x: usize, nn: u8) {
+    if cpu.v[x] == nn {
+        cpu.pc += 2;
+    }
+}
+
+fn skipx_neq(cpu: &mut Cpu, x: usize, nn: u8) {
+    if cpu.v[x] != nn {
+        cpu.pc += 2;
+    }
+}
+
+fn skipxy_eq(cpu: &mut Cpu, x: usize, y: usize) {
+    if cpu.v[x] == cpu.v[y] {
+        cpu.pc += 2;
+    }
+}
+
+fn skipxy_neq(cpu: &mut Cpu, x: usize, y: usize) {
+    if cpu.v[x] != cpu.v[y] {
+        cpu.pc += 2;
+    }
+}
+
+fn setxy(cpu: &mut Cpu, x: usize, y: usize) {
+    cpu.v[x] = cpu.v[y];
+}
+
+fn orxy(cpu: &mut Cpu, x: usize, y: usize) {
+    cpu.v[x] |= cpu.v[y];
+}
+
+fn andxy(cpu: &mut Cpu, x: usize, y: usize) {
+    cpu.v[x] &= cpu.v[y];
+}
+
+fn xorxy(cpu: &mut Cpu, x: usize, y: usize) {
+    cpu.v[x] ^= cpu.v[y];
+}
+
+fn addxyc(cpu: &mut Cpu, x: usize, y: usize) {
+    let (result, carry) = cpu.v[x].overflowing_add(cpu.v[y]);
+    cpu.v[x] = result;
+    cpu.v[0xF] = carry as u8;
+}
+
+fn subxy(cpu: &mut Cpu, x: usize, y: usize) {
+    let (result, borrow) = cpu.v[x].overflowing_sub(cpu.v[y]);
+    cpu.v[x] = result;
+    cpu.v[0xF] = borrow as u8;
+}
+
+fn subyx(cpu: &mut Cpu, x: usize, y: usize) {
+    let (result, borrow) = cpu.v[y].overflowing_sub(cpu.v[x]);
+    cpu.v[y] = result;
+    cpu.v[0xF] = borrow as u8;
+}
+
+fn shiftxyr(cpu: &mut Cpu, x: usize, y: usize) {
+    cpu.v[0xF] = cpu.v[y] & 0x1;
+    cpu.v[x] = cpu.v[y] >> 1;
+}
+
+fn shiftxyl(cpu: &mut Cpu, x: usize, y: usize) {
+    cpu.v[0xF] = (cpu.v[y] >> 7) & 0x1;
+    cpu.v[x] = cpu.v[y] << 1;
+}
+
+#[allow(dead_code)]
+fn shiftxr(cpu: &mut Cpu, x: usize) {
+    cpu.v[0xF] = cpu.v[x] & 0x1;
+    cpu.v[x] >>= 1;
+}
+
+#[allow(dead_code)]
+fn shiftxl(cpu: &mut Cpu, x: usize) {
+    cpu.v[0xF] = (cpu.v[x] >> 7) & 0x1;
+    cpu.v[x] <<= 1;
+}
+
+fn jmp0(cpu: &mut Cpu, nnn: usize) {
+    cpu.pc = (cpu.v[0] as usize) + nnn;
+}
+
+#[allow(dead_code)]
+fn jmpx(cpu: &mut Cpu, x: usize, nnn: usize) {
+    cpu.pc = (cpu.v[x] as usize) + nnn;
+}
+
+fn rand(cpu: &mut Cpu, x: usize, nn: u8) {
+    cpu.v[x] = rand::thread_rng().gen_range(0..=nn) & nn;
+}
+
+fn addi(cpu: &mut Cpu, x: usize) {
+    cpu.idx = cpu.idx.wrapping_add(cpu.v[x] as usize);
+}
+
+#[allow(dead_code)]
+fn addic(cpu: &mut Cpu, x: usize) {
+    let (result, carry) = cpu.idx.overflowing_add(cpu.v[x] as usize);
+    cpu.idx = result;
+    cpu.v[0xF] = carry as u8;
+}
+
+fn bcd(cpu: &mut Cpu, x: usize) {
+    cpu.memory[cpu.idx] = cpu.v[x] / 100;
+    cpu.memory[cpu.idx + 1] = (cpu.v[x] / 10) % 10;
+    cpu.memory[cpu.idx + 2] = cpu.v[x] % 10;
+}
+
+fn stxi(cpu: &mut Cpu, x: usize) {
+    let memory = &mut cpu.memory[cpu.idx..=(cpu.idx + x)];
+    let registers = &cpu.v[0..=x];
+    memory.copy_from_slice(registers);
+    cpu.idx += x + 1;
+}
+
+#[allow(dead_code)]
+fn stx(cpu: &mut Cpu, x: usize) {
+    let memory = &mut cpu.memory[cpu.idx..=(cpu.idx + x)];
+    let registers = &cpu.v[0..=x];
+    memory.copy_from_slice(registers);
+}
+
+fn ldxi(cpu: &mut Cpu, x: usize) {
+    let registers = &mut cpu.v[0..=x];
+    let memory = &cpu.memory[cpu.idx..=(cpu.idx + x)];
+    registers.copy_from_slice(memory);
+    cpu.idx += x + 1;
+}
+
+#[allow(dead_code)]
+fn ldx(cpu: &mut Cpu, x: usize) {
+    let registers = &mut cpu.v[0..=x];
+    let memory = &cpu.memory[cpu.idx..=(cpu.idx + x)];
+    registers.copy_from_slice(memory);
+}
 
 #[cfg(test)]
 mod tests {
-    use super::Cpu;
     use crate::constants::hardware::{ENTRY_POINT, SCREEN_WIDTH, SCREEN_HEIGHT};
-    use crate::cpu::{Instruction, Operand, Pixel, to_nnn};
+    use crate::cpu::{Pixel, Cpu};
+    use std::io::SeekFrom::End;
 
     #[test]
     fn should_clear_screen() {
         let mut cpu = Cpu::new();
+        cpu.memory[ENTRY_POINT] = 0x00;
+        cpu.memory[ENTRY_POINT + 1] = 0xE0;
         cpu.display = [Pixel::Black; SCREEN_WIDTH * SCREEN_HEIGHT];
-        let inst = Instruction { function: Cpu::clear, operand: Operand::None };
-        cpu.execute(inst);
+        cpu.run_cycle();
 
         assert_eq!(cpu.display, [Pixel::White; SCREEN_WIDTH * SCREEN_HEIGHT])
     }
@@ -303,67 +380,432 @@ mod tests {
     #[test]
     fn should_jump_to_nnn() {
         let mut cpu = Cpu::new();
-        let source_addr = ENTRY_POINT + 4;
-        let inst = Instruction { function: Cpu::jmp, operand: Operand::NNN(source_addr as u16) };
-        cpu.execute(inst);
+        cpu.memory[ENTRY_POINT] = 0x12;
+        cpu.memory[ENTRY_POINT + 1] = 0x22;
+        cpu.run_cycle();
 
-        assert_eq!(cpu.pc, source_addr);
+        assert_eq!(cpu.pc, 0x222);
+    }
+
+    #[test]
+    fn should_call_subroutine() {
+        let mut cpu = Cpu::new();
+        cpu.memory[ENTRY_POINT] = 0x2A;
+        cpu.memory[ENTRY_POINT + 1] = 0xAA;
+        cpu.run_cycle();
+
+        assert_eq!(*cpu.stack.front().unwrap(), ENTRY_POINT + 2);
+        assert_eq!(cpu.pc, 0xAAA);
+    }
+
+    #[test]
+    fn should_return_from_subroutine() {
+        let mut cpu = Cpu::new();
+        cpu.memory[ENTRY_POINT] = 0x00;
+        cpu.memory[ENTRY_POINT + 1] = 0xEE;
+        cpu.stack.push_front(ENTRY_POINT);
+        cpu.run_cycle();
+
+        assert_eq!(cpu.pc, ENTRY_POINT);
     }
 
     #[test]
     fn should_set_vx_to_nn() {
         let mut cpu = Cpu::new();
-        let inst = Instruction { function: Cpu::setr, operand: Operand::XNN(0, 10) };
-        cpu.execute(inst);
+        cpu.memory[ENTRY_POINT] = 0x61;
+        cpu.memory[ENTRY_POINT + 1] = 0xFF;
+        cpu.run_cycle();
 
-        assert_eq!(cpu.registers[0], 10);
+        assert_eq!(cpu.v[1], 0xFF);
     }
 
     #[test]
     fn should_add_nn_to_vx() {
         let mut cpu = Cpu::new();
-        cpu.registers[0] = 10;
-        let inst = Instruction { function: Cpu::add, operand: Operand::XNN(0, 10) };
-        cpu.execute(inst);
+        cpu.memory[ENTRY_POINT] = 0x71;
+        cpu.memory[ENTRY_POINT + 1] = 0x98;
+        cpu.v[1] = 1;
+        cpu.run_cycle();
 
-        assert_eq!(cpu.registers[0], 20);
+        assert_eq!(cpu.v[1], 0x99);
     }
 
     #[test]
     fn should_set_idx_to_nnn() {
         let mut cpu = Cpu::new();
-        let source_addr = ENTRY_POINT + 4;
-        let inst = Instruction { function: Cpu::seti, operand: Operand::NNN(source_addr as u16) };
-        cpu.execute(inst);
+        cpu.memory[ENTRY_POINT] = 0xA3;
+        cpu.memory[ENTRY_POINT + 1] = 0x33;
+        cpu.run_cycle();
 
-        assert_eq!(cpu.idx, source_addr);
+        assert_eq!(cpu.idx, 0x333);
     }
 
     #[test]
-    fn should_draw_sprite() {
+    fn should_skipx_eq() {
         let mut cpu = Cpu::new();
+        let nn = 0xAA;
+        cpu.memory[ENTRY_POINT] = 0x31;
+        cpu.memory[ENTRY_POINT + 1] = nn;
+        cpu.v[1] = nn;
+        cpu.run_cycle();
 
-        cpu.idx = 0x300;
-        cpu.memory[cpu.idx] = 0x3C;
-        cpu.memory[cpu.idx + 1] = 0xC3;
-        cpu.memory[cpu.idx + 2] = 0xFF;
-        cpu.registers[0x1] = 1;
-        cpu.registers[0x2] = 2;
+        assert_eq!(cpu.pc, ENTRY_POINT + 4);
+    }
 
-        let inst = Instruction { function: Cpu::draw, operand: Operand::XYN(0x1, 0x2, 3) };
-        cpu.execute(inst);
 
-        print!("begin display\n");
-        for y in 0..SCREEN_HEIGHT {
-            for x in 0..SCREEN_WIDTH {
-                if cpu.get_pixel(x, y) == Pixel::White {
-                    print!("*");
-                } else {
-                    print!(" ");
-                }
-            }
-            print!("\n");
+    #[test]
+    fn should_skipx_neq() {
+        let mut cpu = Cpu::new();
+        let nn = 0xAA;
+        cpu.memory[ENTRY_POINT] = 0x41;
+        cpu.memory[ENTRY_POINT + 1] = nn;
+        cpu.v[1] = nn + 1;
+        cpu.run_cycle();
+
+        assert_eq!(cpu.pc, ENTRY_POINT + 4);
+    }
+
+    #[test]
+    fn should_skipxy_eq() {
+        let mut cpu = Cpu::new();
+        cpu.memory[ENTRY_POINT] = 0x51;
+        cpu.memory[ENTRY_POINT + 1] = 0x20;
+        cpu.v[1] = 0xAA;
+        cpu.v[2] = 0xAA;
+        cpu.run_cycle();
+
+        assert_eq!(cpu.pc, ENTRY_POINT + 4);
+    }
+
+    #[test]
+    fn should_skipxy_neq() {
+        let mut cpu = Cpu::new();
+        cpu.memory[ENTRY_POINT] = 0x91;
+        cpu.memory[ENTRY_POINT + 1] = 0x20;
+        cpu.v[1] = 0xAA;
+        cpu.v[2] = 0xBB;
+        cpu.run_cycle();
+
+        assert_eq!(cpu.pc, ENTRY_POINT + 4);
+    }
+
+    #[test]
+    fn should_setxy() {
+        let mut cpu = Cpu::new();
+        cpu.memory[ENTRY_POINT] = 0x81;
+        cpu.memory[ENTRY_POINT + 1] = 0x20;
+        cpu.v[1] = 0xAA;
+        cpu.v[2] = 0xBB;
+        cpu.run_cycle();
+
+        assert_eq!(cpu.v[1], 0xBB);
+        assert_eq!(cpu.v[2], 0xBB);
+    }
+
+    #[test]
+    fn should_orxy() {
+        let mut cpu = Cpu::new();
+        cpu.memory[ENTRY_POINT] = 0x81;
+        cpu.memory[ENTRY_POINT + 1] = 0x21;
+        cpu.v[1] = 0b10010011;
+        cpu.v[2] = 0b11110001;
+        cpu.run_cycle();
+
+        assert_eq!(cpu.v[1], 0b11110011);
+        assert_eq!(cpu.v[2], 0b11110001)
+    }
+
+    #[test]
+    fn should_andxy() {
+        let mut cpu = Cpu::new();
+        cpu.memory[ENTRY_POINT] = 0x81;
+        cpu.memory[ENTRY_POINT + 1] = 0x22;
+        cpu.v[1] = 0b10010011;
+        cpu.v[2] = 0b11110001;
+        cpu.run_cycle();
+
+        assert_eq!(cpu.v[1], 0b10010001);
+        assert_eq!(cpu.v[2], 0b11110001)
+    }
+
+    #[test]
+    fn should_xorxy() {
+        let mut cpu = Cpu::new();
+        cpu.memory[ENTRY_POINT] = 0x81;
+        cpu.memory[ENTRY_POINT + 1] = 0x23;
+        cpu.v[1] = 0b10010011;
+        cpu.v[2] = 0b11110001;
+        cpu.run_cycle();
+
+        assert_eq!(cpu.v[1], 0b01100010);
+        assert_eq!(cpu.v[2], 0b11110001)
+    }
+
+    #[test]
+    fn should_addxy() {
+        let mut cpu = Cpu::new();
+        cpu.memory[ENTRY_POINT] = 0x81;
+        cpu.memory[ENTRY_POINT + 1] = 0x24;
+        cpu.v[1] = 0x1;
+        cpu.v[2] = 0x2;
+        cpu.run_cycle();
+
+        assert_eq!(cpu.v[1], 0x3);
+        assert_eq!(cpu.v[2], 0x2);
+        assert_eq!(cpu.v[0xF], 0);
+    }
+
+    #[test]
+    fn should_addxy_carry() {
+        let mut cpu = Cpu::new();
+        cpu.memory[ENTRY_POINT] = 0x81;
+        cpu.memory[ENTRY_POINT + 1] = 0x24;
+        cpu.v[1] = 0xFF;
+        cpu.v[2] = 0x2;
+        cpu.run_cycle();
+
+        assert_eq!(cpu.v[1], 0x1);
+        assert_eq!(cpu.v[2], 0x2);
+        assert_eq!(cpu.v[0xF], 1);
+    }
+
+    #[test]
+    fn should_subxy() {
+        let mut cpu = Cpu::new();
+        cpu.memory[ENTRY_POINT] = 0x81;
+        cpu.memory[ENTRY_POINT + 1] = 0x25;
+        cpu.v[1] = 0xFF;
+        cpu.v[2] = 0x1;
+        cpu.run_cycle();
+
+        assert_eq!(cpu.v[1], 0xFE);
+        assert_eq!(cpu.v[2], 0x1);
+        assert_eq!(cpu.v[0xF], 0);
+    }
+
+    #[test]
+    fn should_subxy_borrow() {
+        let mut cpu = Cpu::new();
+        cpu.memory[ENTRY_POINT] = 0x81;
+        cpu.memory[ENTRY_POINT + 1] = 0x25;
+        cpu.v[1] = 0x1;
+        cpu.v[2] = 0xFF;
+        cpu.run_cycle();
+
+        assert_eq!(cpu.v[1], 0x02);
+        assert_eq!(cpu.v[2], 0xFF);
+        assert_eq!(cpu.v[0xF], 1);
+    }
+
+    #[test]
+    fn should_subyx() {
+        let mut cpu = Cpu::new();
+        cpu.memory[ENTRY_POINT] = 0x81;
+        cpu.memory[ENTRY_POINT + 1] = 0x27;
+        cpu.v[1] = 0x1;
+        cpu.v[2] = 0xFF;
+        cpu.run_cycle();
+
+        assert_eq!(cpu.v[2], 0xFE);
+        assert_eq!(cpu.v[1], 0x1);
+        assert_eq!(cpu.v[0xF], 0);
+    }
+
+    #[test]
+    fn should_subyx_borrow() {
+        let mut cpu = Cpu::new();
+        cpu.memory[ENTRY_POINT] = 0x81;
+        cpu.memory[ENTRY_POINT + 1] = 0x27;
+        cpu.v[1] = 0xFF;
+        cpu.v[2] = 0x01;
+        cpu.run_cycle();
+
+        assert_eq!(cpu.v[2], 0x02);
+        assert_eq!(cpu.v[1], 0xFF);
+        assert_eq!(cpu.v[0xF], 1);
+    }
+
+    #[test]
+    fn should_shiftxyr() {
+        let mut cpu = Cpu::new();
+        cpu.memory[ENTRY_POINT] = 0x81;
+        cpu.memory[ENTRY_POINT + 1] = 0x26;
+        cpu.v[1] = 0xAA;
+        cpu.v[2] = 0xFE;
+        cpu.run_cycle();
+
+        assert_eq!(cpu.v[1], 0x7F);
+        assert_eq!(cpu.v[2], 0xFE);
+        assert_eq!(cpu.v[0xF], 0x0);
+    }
+
+    #[test]
+    fn should_shiftxyr_carry() {
+        let mut cpu = Cpu::new();
+        cpu.memory[ENTRY_POINT] = 0x81;
+        cpu.memory[ENTRY_POINT + 1] = 0x26;
+        cpu.v[1] = 0xAA;
+        cpu.v[2] = 0xFF;
+        cpu.run_cycle();
+
+        assert_eq!(cpu.v[1], 0x7F);
+        assert_eq!(cpu.v[2], 0xFF);
+        assert_eq!(cpu.v[0xF], 0x1);
+    }
+
+    #[test]
+    fn should_shiftxyl() {
+        let mut cpu = Cpu::new();
+        cpu.memory[ENTRY_POINT] = 0x81;
+        cpu.memory[ENTRY_POINT + 1] = 0x2E;
+        cpu.v[1] = 0xAA;
+        cpu.v[2] = 0x7F;
+        cpu.run_cycle();
+
+        assert_eq!(cpu.v[1], 0xFE);
+        assert_eq!(cpu.v[2], 0x7F);
+        assert_eq!(cpu.v[0xF], 0);
+    }
+
+    #[test]
+    fn should_shiftxyl_carry() {
+        let mut cpu = Cpu::new();
+        cpu.memory[ENTRY_POINT] = 0x81;
+        cpu.memory[ENTRY_POINT + 1] = 0x2E;
+        cpu.v[1] = 0xAA;
+        cpu.v[2] = 0xFF;
+        cpu.run_cycle();
+
+        assert_eq!(cpu.v[1], 0xFE);
+        assert_eq!(cpu.v[2], 0xFF);
+        assert_eq!(cpu.v[0xF], 1);
+    }
+
+    #[test]
+    fn should_jmp0() {
+        let mut cpu = Cpu::new();
+        cpu.memory[ENTRY_POINT] = 0xB2;
+        cpu.memory[ENTRY_POINT + 1] = 0x22;
+        cpu.v[0] = 1;
+        cpu.run_cycle();
+
+        assert_eq!(cpu.pc, 0x223);
+    }
+
+    #[test]
+    fn should_addi() {
+        let mut cpu = Cpu::new();
+        cpu.memory[ENTRY_POINT] = 0xF1;
+        cpu.memory[ENTRY_POINT + 1] = 0x1E;
+        cpu.idx = 0xFFE;
+        cpu.v[1] = 0x2;
+        cpu.run_cycle();
+
+        assert_eq!(cpu.idx, 0x001);
+    }
+
+    #[test]
+    fn should_convert_bcd() {
+        let mut cpu = Cpu::new();
+        cpu.memory[ENTRY_POINT] = 0xF1;
+        cpu.memory[ENTRY_POINT + 1] = 0x33;
+        cpu.idx = ENTRY_POINT + 2;
+        cpu.v[1] = 156;
+        cpu.run_cycle();
+
+        assert_eq!(cpu.memory[cpu.idx], 1);
+        assert_eq!(cpu.memory[cpu.idx + 1], 5);
+        assert_eq!(cpu.memory[cpu.idx + 2], 6);
+    }
+
+    #[test]
+    fn should_stxi_all_registers() {
+        let mut cpu = Cpu::new();
+        let x: usize = 0xF;
+        cpu.memory[ENTRY_POINT] = 0xF0 + x as u8;
+        cpu.memory[ENTRY_POINT + 1] = 0x55;
+        cpu.idx = ENTRY_POINT + 2;
+        let initial_idx = cpu.idx;
+        cpu.v = [1; 16];
+
+        cpu.run_cycle();
+        assert_eq!(cpu.idx, initial_idx + x + 1);
+        cpu.idx = initial_idx;
+
+        let memory_region = &mut cpu.memory[cpu.idx..=(cpu.idx + x)];
+        for (memory_cell, register) in memory_region.iter().zip(&cpu.v) {
+            assert_eq!(memory_cell, register);
         }
-        assert!(!cpu.display.iter().all(|&p| p == Pixel::Black));
+    }
+
+    #[test]
+    fn should_stxi_up_to_x_registers() {
+        let mut cpu = Cpu::new();
+        let x = 0x9;
+        cpu.memory[ENTRY_POINT] = 0xF0 + x as u8;
+        cpu.memory[ENTRY_POINT + 1] = 0x55;
+        cpu.idx = ENTRY_POINT + 2;
+        let initial_idx = cpu.idx;
+        cpu.v = [1; 16];
+
+        cpu.run_cycle();
+        assert_eq!(cpu.idx, initial_idx + x + 1);
+        cpu.idx = initial_idx;
+
+        let initial_memory_region = &mut cpu.memory[cpu.idx..=(cpu.idx + x)];
+        for (memory_cell, register) in initial_memory_region.iter().zip(&cpu.v) {
+            assert_eq!(memory_cell, register);
+        }
+
+        let remaining_memory_region = &mut cpu.memory[(cpu.idx + x + 1)..=(cpu.idx + 0xF)];
+        for memory in remaining_memory_region {
+            assert_eq!(*memory, 0);
+        }
+    }
+
+    #[test]
+    fn should_ldxi_all_registers() {
+        let mut cpu = Cpu::new();
+        let x = 0xF;
+        cpu.memory[ENTRY_POINT] = 0xF0 + x as u8;
+        cpu.memory[ENTRY_POINT + 1] = 0x65;
+        cpu.idx = ENTRY_POINT + 2;
+        let initial_idx = cpu.idx;
+        cpu.memory[cpu.idx..=(cpu.idx + 0xF)].copy_from_slice(&[1u8; 16]);
+
+        cpu.run_cycle();
+        assert_eq!(cpu.idx, initial_idx + x + 1);
+        cpu.idx = initial_idx;
+
+        let memory_region = &mut cpu.memory[cpu.idx..=(cpu.idx + x)];
+        for (memory_cell, register) in memory_region.iter().zip(&cpu.v) {
+            assert_eq!(memory_cell, register);
+        }
+    }
+
+    #[test]
+    fn should_ldxi_up_to_x_registers() {
+        let mut cpu = Cpu::new();
+        let x = 0x9;
+        cpu.memory[ENTRY_POINT] = 0xF0 + x as u8;
+        cpu.memory[ENTRY_POINT + 1] = 0x65;
+        cpu.idx = ENTRY_POINT + 2;
+        let initial_idx = cpu.idx;
+        let memory_region = &mut cpu.memory[cpu.idx..=(cpu.idx + x)];
+        memory_region.copy_from_slice(&[2u8; 10]);
+
+        cpu.run_cycle();
+        assert_eq!(cpu.idx, initial_idx + x + 1);
+        cpu.idx = initial_idx;
+
+        let (initial_registers, remaining_registers) = cpu.v.split_at(x + 1);
+        let initial_memory = &cpu.memory[cpu.idx..=(cpu.idx + x)];
+        for (memory_cell, register) in initial_registers.iter().zip(initial_memory) {
+            assert_eq!(memory_cell, register);
+        }
+
+        for register in remaining_registers {
+            assert_eq!(*register, 0);
+        }
     }
 }
