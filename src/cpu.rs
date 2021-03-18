@@ -732,10 +732,8 @@ mod tests {
         assert_eq!(cpu.idx, initial_idx + x + 1);
         cpu.idx = initial_idx;
 
-        let memory_region = &mut cpu.memory[cpu.idx..=(cpu.idx + x)];
-        for (memory_cell, register) in memory_region.iter().zip(&cpu.v) {
-            assert_eq!(memory_cell, register);
-        }
+        let memory_region = &cpu.memory[cpu.idx..=(cpu.idx + x)];
+        assert_eq!(memory_region, &cpu.v);
     }
 
     #[test]
@@ -752,15 +750,11 @@ mod tests {
         assert_eq!(cpu.idx, initial_idx + x + 1);
         cpu.idx = initial_idx;
 
-        let initial_memory_region = &mut cpu.memory[cpu.idx..=(cpu.idx + x)];
-        for (memory_cell, register) in initial_memory_region.iter().zip(&cpu.v) {
-            assert_eq!(memory_cell, register);
-        }
+        let initial_memory_region = &cpu.memory[cpu.idx..=(cpu.idx + x)];
+        let remaining_memory_region = &cpu.memory[(cpu.idx + x + 1)..=(cpu.idx + 0xF)];
 
-        let remaining_memory_region = &mut cpu.memory[(cpu.idx + x + 1)..=(cpu.idx + 0xF)];
-        for memory in remaining_memory_region {
-            assert_eq!(*memory, 0);
-        }
+        assert_eq!(initial_memory_region, &cpu.v[0..=x]);
+        assert_eq!(remaining_memory_region, &[0u8; 6]);
     }
 
     #[test]
@@ -771,16 +765,12 @@ mod tests {
         cpu.memory[ENTRY_POINT + 1] = 0x65;
         cpu.idx = ENTRY_POINT + 2;
         let initial_idx = cpu.idx;
-        cpu.memory[cpu.idx..=(cpu.idx + 0xF)].copy_from_slice(&[1u8; 16]);
+        let memory_region = &mut cpu.memory[cpu.idx..=(cpu.idx + 0xF)];
+        memory_region.copy_from_slice(&[1u8; 16]);
 
         cpu.run_cycle();
         assert_eq!(cpu.idx, initial_idx + x + 1);
-        cpu.idx = initial_idx;
-
-        let memory_region = &mut cpu.memory[cpu.idx..=(cpu.idx + x)];
-        for (memory_cell, register) in memory_region.iter().zip(&cpu.v) {
-            assert_eq!(memory_cell, register);
-        }
+        assert_eq!(cpu.v, [1u8; 16]);
     }
 
     #[test]
@@ -792,20 +782,12 @@ mod tests {
         cpu.idx = ENTRY_POINT + 2;
         let initial_idx = cpu.idx;
         let memory_region = &mut cpu.memory[cpu.idx..=(cpu.idx + x)];
-        memory_region.copy_from_slice(&[2u8; 10]);
+        memory_region.copy_from_slice(&[1u8; 10]);
 
         cpu.run_cycle();
         assert_eq!(cpu.idx, initial_idx + x + 1);
-        cpu.idx = initial_idx;
 
-        let (initial_registers, remaining_registers) = cpu.v.split_at(x + 1);
-        let initial_memory = &cpu.memory[cpu.idx..=(cpu.idx + x)];
-        for (memory_cell, register) in initial_registers.iter().zip(initial_memory) {
-            assert_eq!(memory_cell, register);
-        }
-
-        for register in remaining_registers {
-            assert_eq!(*register, 0);
-        }
+        let expected: [u8; 16] = [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0];
+        assert_eq!(cpu.v, expected);
     }
 }
