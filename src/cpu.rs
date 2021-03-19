@@ -321,9 +321,10 @@ fn addi(cpu: &mut Cpu, x: usize) {
 
 #[allow(dead_code)]
 fn addic(cpu: &mut Cpu, x: usize) {
-    let (result, carry) = cpu.idx.overflowing_add(cpu.v[x] as usize);
-    cpu.idx = result;
-    cpu.v[0xF] = carry as u8;
+    cpu.idx = cpu.idx.wrapping_add(cpu.v[x] as usize);
+    if cpu.idx > 0xFFF {
+        cpu.v[0xF] = 1;
+    }
 }
 
 fn bcd(cpu: &mut Cpu, x: usize) {
@@ -698,10 +699,10 @@ mod tests {
         cpu.memory[ENTRY_POINT] = 0xF1;
         cpu.memory[ENTRY_POINT + 1] = 0x1E;
         cpu.idx = 0xFFE;
-        cpu.v[1] = 0x2;
+        cpu.v[1] = 0x1;
         cpu.run_cycle();
 
-        assert_eq!(cpu.idx, 0x001);
+        assert_eq!(cpu.idx, 0xFFF);
     }
 
     #[test]
