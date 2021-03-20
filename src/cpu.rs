@@ -129,10 +129,10 @@ impl Cpu {
             (0xA, _, _, _) => Box::new(move |cpu| seti(cpu, to_nnn(opcode))),
             (0xB, _, _, _) => Box::new(move |cpu| jmp0(cpu, to_nnn(opcode))),
             (0xD, x, y, n) => Box::new(move |cpu| draw(cpu, x as usize, y as usize, n as usize)),
-            (0xF, x, 0x1, 0xE) => Box::new(move |cpu| addi(cpu, to_x(x))),
-            (0xF, x, 0x3, 0x3) => Box::new(move |cpu| bcd(cpu, to_x(x))),
-            (0xF, x, 0x5, 0x5) => Box::new(move |cpu| stxi(cpu, to_x(x))),
-            (0xF, x, 0x6, 0x5) => Box::new(move |cpu| ldxi(cpu, to_x(x))),
+            (0xF, x, 1, 0xE) => Box::new(move |cpu| addi(cpu, to_x(x))),
+            (0xF, x, 3, 3) => Box::new(move |cpu| bcd(cpu, to_x(x))),
+            (0xF, x, 5, 5) => Box::new(move |cpu| stxi(cpu, to_x(x))),
+            (0xF, x, 6, 5) => Box::new(move |cpu| ldxi(cpu, to_x(x))),
             _ => panic!("unknown instruction: {}", opcode)
         };
     }
@@ -200,7 +200,7 @@ fn draw(cpu: &mut Cpu, x: usize, y: usize, n: usize) {
             if x + i >= SCREEN_WIDTH {
                 return;
             }
-            let sprite = (row >> (7 - i)) & 0x1;
+            let sprite = (row >> (7 - i)) & 1;
             if sprite == 1 {
                 if cpu.get_pixel(x + i, y + n) == Pixel::White {
                     cpu.v[0xF] = 1;
@@ -281,24 +281,24 @@ fn subyx(cpu: &mut Cpu, x: usize, y: usize) {
 }
 
 fn shiftxyr(cpu: &mut Cpu, x: usize, y: usize) {
-    cpu.v[0xF] = cpu.v[y] & 0x1;
+    cpu.v[0xF] = cpu.v[y] & 1;
     cpu.v[x] = cpu.v[y] >> 1;
 }
 
 fn shiftxyl(cpu: &mut Cpu, x: usize, y: usize) {
-    cpu.v[0xF] = (cpu.v[y] >> 7) & 0x1;
+    cpu.v[0xF] = (cpu.v[y] >> 7) & 1;
     cpu.v[x] = cpu.v[y] << 1;
 }
 
 #[allow(dead_code)]
 fn shiftxr(cpu: &mut Cpu, x: usize) {
-    cpu.v[0xF] = cpu.v[x] & 0x1;
+    cpu.v[0xF] = cpu.v[x] & 1;
     cpu.v[x] >>= 1;
 }
 
 #[allow(dead_code)]
 fn shiftxl(cpu: &mut Cpu, x: usize) {
-    cpu.v[0xF] = (cpu.v[x] >> 7) & 0x1;
+    cpu.v[0xF] = (cpu.v[x] >> 7) & 1;
     cpu.v[x] <<= 1;
 }
 
@@ -547,12 +547,12 @@ mod tests {
         let mut cpu = Cpu::new();
         cpu.memory[ENTRY_POINT] = 0x81;
         cpu.memory[ENTRY_POINT + 1] = 0x24;
-        cpu.v[1] = 0x1;
-        cpu.v[2] = 0x2;
+        cpu.v[1] = 1;
+        cpu.v[2] = 2;
         cpu.run_cycle();
 
-        assert_eq!(cpu.v[1], 0x3);
-        assert_eq!(cpu.v[2], 0x2);
+        assert_eq!(cpu.v[1], 3);
+        assert_eq!(cpu.v[2], 2);
         assert_eq!(cpu.v[0xF], 0);
     }
 
@@ -562,11 +562,11 @@ mod tests {
         cpu.memory[ENTRY_POINT] = 0x81;
         cpu.memory[ENTRY_POINT + 1] = 0x24;
         cpu.v[1] = 0xFF;
-        cpu.v[2] = 0x2;
+        cpu.v[2] = 2;
         cpu.run_cycle();
 
-        assert_eq!(cpu.v[1], 0x1);
-        assert_eq!(cpu.v[2], 0x2);
+        assert_eq!(cpu.v[1], 1);
+        assert_eq!(cpu.v[2], 2);
         assert_eq!(cpu.v[0xF], 1);
     }
 
@@ -576,11 +576,11 @@ mod tests {
         cpu.memory[ENTRY_POINT] = 0x81;
         cpu.memory[ENTRY_POINT + 1] = 0x25;
         cpu.v[1] = 0xFF;
-        cpu.v[2] = 0x1;
+        cpu.v[2] = 1;
         cpu.run_cycle();
 
         assert_eq!(cpu.v[1], 0xFE);
-        assert_eq!(cpu.v[2], 0x1);
+        assert_eq!(cpu.v[2], 1);
         assert_eq!(cpu.v[0xF], 0);
     }
 
@@ -589,11 +589,11 @@ mod tests {
         let mut cpu = Cpu::new();
         cpu.memory[ENTRY_POINT] = 0x81;
         cpu.memory[ENTRY_POINT + 1] = 0x25;
-        cpu.v[1] = 0x1;
+        cpu.v[1] = 1;
         cpu.v[2] = 0xFF;
         cpu.run_cycle();
 
-        assert_eq!(cpu.v[1], 0x02);
+        assert_eq!(cpu.v[1], 2);
         assert_eq!(cpu.v[2], 0xFF);
         assert_eq!(cpu.v[0xF], 1);
     }
@@ -603,12 +603,12 @@ mod tests {
         let mut cpu = Cpu::new();
         cpu.memory[ENTRY_POINT] = 0x81;
         cpu.memory[ENTRY_POINT + 1] = 0x27;
-        cpu.v[1] = 0x1;
+        cpu.v[1] = 1;
         cpu.v[2] = 0xFF;
         cpu.run_cycle();
 
         assert_eq!(cpu.v[2], 0xFE);
-        assert_eq!(cpu.v[1], 0x1);
+        assert_eq!(cpu.v[1], 1);
         assert_eq!(cpu.v[0xF], 0);
     }
 
@@ -618,10 +618,10 @@ mod tests {
         cpu.memory[ENTRY_POINT] = 0x81;
         cpu.memory[ENTRY_POINT + 1] = 0x27;
         cpu.v[1] = 0xFF;
-        cpu.v[2] = 0x01;
+        cpu.v[2] = 1;
         cpu.run_cycle();
 
-        assert_eq!(cpu.v[2], 0x02);
+        assert_eq!(cpu.v[2], 2);
         assert_eq!(cpu.v[1], 0xFF);
         assert_eq!(cpu.v[0xF], 1);
     }
@@ -637,7 +637,7 @@ mod tests {
 
         assert_eq!(cpu.v[1], 0x7F);
         assert_eq!(cpu.v[2], 0xFE);
-        assert_eq!(cpu.v[0xF], 0x0);
+        assert_eq!(cpu.v[0xF], 0);
     }
 
     #[test]
@@ -651,7 +651,7 @@ mod tests {
 
         assert_eq!(cpu.v[1], 0x7F);
         assert_eq!(cpu.v[2], 0xFF);
-        assert_eq!(cpu.v[0xF], 0x1);
+        assert_eq!(cpu.v[0xF], 1);
     }
 
     #[test]
@@ -699,7 +699,7 @@ mod tests {
         cpu.memory[ENTRY_POINT] = 0xF1;
         cpu.memory[ENTRY_POINT + 1] = 0x1E;
         cpu.idx = 0xFFE;
-        cpu.v[1] = 0x1;
+        cpu.v[1] = 1;
         cpu.run_cycle();
 
         assert_eq!(cpu.idx, 0xFFF);
@@ -740,7 +740,7 @@ mod tests {
     #[test]
     fn should_stxi_up_to_x_registers() {
         let mut cpu = Cpu::new();
-        let x = 0x9;
+        let x = 9;
         cpu.memory[ENTRY_POINT] = 0xF0 + x as u8;
         cpu.memory[ENTRY_POINT + 1] = 0x55;
         cpu.idx = ENTRY_POINT + 2;
@@ -777,7 +777,7 @@ mod tests {
     #[test]
     fn should_ldxi_up_to_x_registers() {
         let mut cpu = Cpu::new();
-        let x = 0x9;
+        let x = 9;
         cpu.memory[ENTRY_POINT] = 0xF0 + x as u8;
         cpu.memory[ENTRY_POINT + 1] = 0x65;
         cpu.idx = ENTRY_POINT + 2;
