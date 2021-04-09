@@ -7,7 +7,7 @@ use std::io::Read;
 use rand::Rng;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum Pixel {
+pub enum Pixel {
     Black,
     White,
 }
@@ -41,7 +41,7 @@ fn to_y(y: u8) -> usize {
 
 pub struct Cpu {
     pub memory: [u8; MEMORY_SIZE],
-    display: [Pixel; SCREEN_WIDTH * SCREEN_HEIGHT],
+    pub display: [Pixel; SCREEN_WIDTH * SCREEN_HEIGHT],
     pc: usize,
     idx: usize,
     stack: VecDeque<usize>,
@@ -150,7 +150,7 @@ impl Cpu {
         (y % (SCREEN_HEIGHT as u8)) as usize
     }
 
-    fn get_pixel(&self, x: usize, y: usize) -> Pixel {
+    pub fn get_pixel(&self, x: usize, y: usize) -> Pixel {
         self.display[x + y * SCREEN_WIDTH]
     }
 
