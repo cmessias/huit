@@ -1,10 +1,13 @@
+use super::constants::hardware::{
+    ENTRY_POINT, MEMORY_SIZE, SCREEN_HEIGHT, SCREEN_WIDTH, STACK_SIZE,
+};
 use super::constants::instruction::*;
-use super::constants::hardware::{MEMORY_SIZE, ENTRY_POINT, SCREEN_HEIGHT, SCREEN_WIDTH, STACK_SIZE};
 
+use crate::drivers::input::InputDriver;
+use rand::Rng;
 use std::collections::VecDeque;
 use std::fs::File;
 use std::io::Read;
-use rand::Rng;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Pixel {
@@ -46,6 +49,8 @@ pub struct Cpu {
     idx: usize,
     stack: VecDeque<usize>,
     v: [u8; 16],
+    pub keypad: [bool; 16],
+    pub last_keypad: [bool; 16],
     _delay_timer: u8,
     _sound_timer: u8,
 }
@@ -59,6 +64,8 @@ impl Cpu {
             idx: 0,
             stack: VecDeque::with_capacity(STACK_SIZE),
             v: [0; 16],
+            keypad: [false; 16],
+            last_keypad: [false; 16],
             _delay_timer: 0,
             _sound_timer: 0,
         }
@@ -129,18 +136,20 @@ impl Cpu {
             (0xA, _, _, _) => Box::new(move |cpu| seti(cpu, to_nnn(opcode))),
             (0xB, _, _, _) => Box::new(move |cpu| jmp0(cpu, to_nnn(opcode))),
             (0xD, x, y, n) => Box::new(move |cpu| draw(cpu, x as usize, y as usize, n as usize)),
+            (0xE, x, 9, 0xE) => Box::new(move |cpu| skipk(cpu, x as usize)),
+            (0xE, x, 0xA, 1) => Box::new(move |cpu| skipnk(cpu, x as usize)),
+            (0xF, x, 0, 0xA) => Box::new(move |cpu| get_key(cpu, x as usize)),
             (0xF, x, 1, 0xE) => Box::new(move |cpu| addi(cpu, to_x(x))),
             (0xF, x, 3, 3) => Box::new(move |cpu| bcd(cpu, to_x(x))),
             (0xF, x, 5, 5) => Box::new(move |cpu| stxi(cpu, to_x(x))),
             (0xF, x, 6, 5) => Box::new(move |cpu| ldxi(cpu, to_x(x))),
-            _ => panic!("unknown instruction: {}", opcode)
+            _ => panic!("unknown instruction: {}", opcode),
         };
     }
 
     fn execute(&mut self, instruction: Instruction) {
         instruction(self);
     }
-
 
     fn wrapx_on_screen(&self, x: u8) -> usize {
         (x % (SCREEN_WIDTH as u8)) as usize
@@ -161,6 +170,14 @@ impl Cpu {
     fn pixel_flip(&mut self, x: usize, y: usize) {
         let pixel = x + y * SCREEN_WIDTH;
         self.display[pixel] = self.display[pixel].flip()
+    }
+
+    pub fn press_keys(&mut self, keys: &[usize]) {
+        self.last_keypad.copy_from_slice(&self.keypad);
+        self.keypad.fill(false);
+        for &key in keys {
+            self.keypad[key] = true;
+        }
     }
 }
 
@@ -361,10 +378,35 @@ fn ldx(cpu: &mut Cpu, x: usize) {
     registers.copy_from_slice(memory);
 }
 
+fn skipk(cpu: &mut Cpu, x: usize) {
+    if cpu.keypad[cpu.v[x] as usize] {
+        cpu.pc += 2;
+    }
+}
+
+fn skipnk(cpu: &mut Cpu, x: usize) {
+    if !cpu.keypad[cpu.v[x] as usize] {
+        cpu.pc += 2;
+    }
+}
+
+fn get_key(cpu: &mut Cpu, x: usize) {
+    for (i, (current_press, last_press)) in
+        cpu.keypad.iter().zip(cpu.last_keypad.iter()).enumerate()
+    {
+        if !*current_press && *last_press {
+            cpu.v[x] = i as u8;
+            return;
+        }
+    }
+
+    cpu.pc -= 2;
+}
+
 #[cfg(test)]
 mod tests {
-    use crate::constants::hardware::{ENTRY_POINT, SCREEN_WIDTH, SCREEN_HEIGHT};
-    use crate::cpu::{Pixel, Cpu};
+    use crate::constants::hardware::{ENTRY_POINT, SCREEN_HEIGHT, SCREEN_WIDTH};
+    use crate::cpu::{Cpu, Pixel};
     use std::io::SeekFrom::End;
 
     #[test]
@@ -452,7 +494,6 @@ mod tests {
 
         assert_eq!(cpu.pc, ENTRY_POINT + 4);
     }
-
 
     #[test]
     fn should_skipx_neq() {
@@ -790,5 +831,68 @@ mod tests {
 
         let expected: [u8; 16] = [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0];
         assert_eq!(cpu.v, expected);
+    }
+
+    #[test]
+    fn should_skipk() {
+        let mut cpu = Cpu::new();
+        cpu.memory[ENTRY_POINT] = 0xE4;
+        cpu.memory[ENTRY_POINT + 1] = 0x9E;
+        cpu.v[4] = 0x5;
+        cpu.keypad[5] = true;
+        cpu.run_cycle();
+
+        assert_eq!(cpu.pc, ENTRY_POINT + 4);
+    }
+
+    #[test]
+    fn should_skipnk() {
+        let mut cpu = Cpu::new();
+        cpu.memory[ENTRY_POINT] = 0xE4;
+        cpu.memory[ENTRY_POINT + 1] = 0xA1;
+        cpu.v[4] = 0x5;
+        cpu.keypad[5] = false;
+        cpu.run_cycle();
+
+        assert_eq!(cpu.pc, ENTRY_POINT + 4);
+    }
+
+    #[test]
+    fn should_get_key_if_key_is_released() {
+        let mut cpu = Cpu::new();
+        cpu.memory[ENTRY_POINT] = 0xF5;
+        cpu.memory[ENTRY_POINT + 1] = 0x0A;
+        cpu.keypad = [false; 16];
+        cpu.last_keypad = [false; 16];
+        cpu.last_keypad[1] = true;
+        cpu.run_cycle();
+
+        assert_eq!(cpu.v[5], 1);
+    }
+
+    #[test]
+    fn should_not_get_key_if_no_key_is_pressed() {
+        let mut cpu = Cpu::new();
+        cpu.memory[ENTRY_POINT] = 0xF5;
+        cpu.memory[ENTRY_POINT + 1] = 0x0A;
+        cpu.keypad = [false; 16];
+        cpu.last_keypad = [false; 16];
+        cpu.run_cycle();
+
+        assert_eq!(cpu.v[5], 0);
+    }
+
+    #[test]
+    fn should_not_get_key_if_key_is_still_pressed() {
+        let mut cpu = Cpu::new();
+        cpu.memory[ENTRY_POINT] = 0xF5;
+        cpu.memory[ENTRY_POINT + 1] = 0x0A;
+        cpu.keypad = [false; 16];
+        cpu.keypad[1] = true;
+        cpu.last_keypad = [false; 16];
+        cpu.last_keypad[1] = true;
+        cpu.run_cycle();
+
+        assert_eq!(cpu.v[5], 0);
     }
 }
