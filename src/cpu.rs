@@ -183,6 +183,16 @@ impl Cpu {
             self.keypad[key] = true;
         }
     }
+
+    fn tick_timers(&mut self) {
+        if self.delay_timer > 0 {
+            self.delay_timer -= 1;
+        }
+
+        if self.sound_timer > 0 {
+            self.sound_timer -= 1;
+        }
+    }
 }
 
 fn clr(cpu: &mut Cpu) {
