@@ -51,8 +51,8 @@ pub struct Cpu {
     v: [u8; 16],
     pub keypad: [bool; 16],
     pub last_keypad: [bool; 16],
-    _delay_timer: u8,
-    _sound_timer: u8,
+    delay_timer: u8,
+    sound_timer: u8,
 }
 
 impl Cpu {
@@ -66,8 +66,8 @@ impl Cpu {
             v: [0; 16],
             keypad: [false; 16],
             last_keypad: [false; 16],
-            _delay_timer: 0,
-            _sound_timer: 0,
+            delay_timer: 0,
+            sound_timer: 0,
         }
     }
 
@@ -75,6 +75,7 @@ impl Cpu {
         let buffer = &mut self.memory[ENTRY_POINT..];
         rom.read(buffer);
     }
+
     pub fn run(&mut self) {
         for i in 0..20 {
             self.run_cycle();
@@ -143,6 +144,9 @@ impl Cpu {
             (0xF, x, 3, 3) => Box::new(move |cpu| bcd(cpu, to_x(x))),
             (0xF, x, 5, 5) => Box::new(move |cpu| stxi(cpu, to_x(x))),
             (0xF, x, 6, 5) => Box::new(move |cpu| ldxi(cpu, to_x(x))),
+            (0xF, x, 0, 7) => Box::new(move |cpu| lddt(cpu, to_x(x))),
+            (0xF, x, 1, 5) => Box::new(move |cpu| stdt(cpu, to_x(x))),
+            (0xF, x, 1, 8) => Box::new(move |cpu| stst(cpu, to_x(x))),
             _ => panic!("unknown instruction: {}", opcode),
         };
     }
@@ -401,6 +405,18 @@ fn get_key(cpu: &mut Cpu, x: usize) {
     }
 
     cpu.pc -= 2;
+}
+
+fn lddt(cpu: &mut Cpu, x: usize) {
+    cpu.v[x] = cpu.delay_timer;
+}
+
+fn stdt(cpu: &mut Cpu, x: usize) {
+    cpu.delay_timer = cpu.v[x];
+}
+
+fn stst(cpu: &mut Cpu, x: usize) {
+    cpu.sound_timer = cpu.v[x];
 }
 
 #[cfg(test)]
@@ -894,5 +910,38 @@ mod tests {
         cpu.run_cycle();
 
         assert_eq!(cpu.v[5], 0);
+    }
+
+    #[test]
+    fn should_load_dt() {
+        let mut cpu = Cpu::new();
+        cpu.memory[ENTRY_POINT] = 0xF5;
+        cpu.memory[ENTRY_POINT + 1] = 0x07;
+        cpu.delay_timer = 100;
+        cpu.run_cycle();
+
+        assert_eq!(cpu.v[5], cpu.delay_timer);
+    }
+
+    #[test]
+    fn should_set_dt() {
+        let mut cpu = Cpu::new();
+        cpu.memory[ENTRY_POINT] = 0xF5;
+        cpu.memory[ENTRY_POINT + 1] = 0x15;
+        cpu.v[5] = 100;
+        cpu.run_cycle();
+
+        assert_eq!(cpu.delay_timer, cpu.v[5]);
+    }
+
+    #[test]
+    fn should_set_st() {
+        let mut cpu = Cpu::new();
+        cpu.memory[ENTRY_POINT] = 0xF5;
+        cpu.memory[ENTRY_POINT + 1] = 0x18;
+        cpu.v[5] = 100;
+        cpu.run_cycle();
+
+        assert_eq!(cpu.sound_timer, cpu.v[5]);
     }
 }
