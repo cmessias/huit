@@ -3,6 +3,8 @@ use super::constants::hardware::{
 };
 use super::constants::instruction::*;
 
+use crate::constants::font::{DIGIT_SIZE, FONT, FONT_SIZE};
+use crate::constants::hardware::FONT_ENTRY_POINT;
 use crate::drivers::input::InputDriver;
 use rand::Rng;
 use std::collections::VecDeque;
@@ -57,8 +59,12 @@ pub struct Cpu {
 
 impl Cpu {
     pub fn new() -> Cpu {
+        let mut memory = [0u8; MEMORY_SIZE];
+        let font_region = &mut memory[FONT_ENTRY_POINT..(FONT_ENTRY_POINT + FONT_SIZE)];
+        font_region.copy_from_slice(&FONT);
+
         Cpu {
-            memory: [0; MEMORY_SIZE],
+            memory,
             display: [Pixel::Black; SCREEN_WIDTH * SCREEN_HEIGHT],
             pc: ENTRY_POINT,
             idx: 0,
@@ -93,10 +99,16 @@ impl Cpu {
         }
     }
 
-    fn run_cycle(&mut self) {
+    pub fn run_cycle(&mut self) {
         let opcode = self.fetch();
         let instruction = self.decode(opcode);
         self.execute(instruction);
+    }
+
+    pub fn run_cycles(&mut self, n: u32) {
+        for _ in 0..n {
+            self.run_cycle();
+        }
     }
 
     fn fetch(&mut self) -> u16 {
@@ -130,20 +142,26 @@ impl Cpu {
             (8, x, y, 3) => Box::new(move |cpu| xorxy(cpu, to_x(x), to_y(y))),
             (8, x, y, 4) => Box::new(move |cpu| addxyc(cpu, to_x(x), to_y(y))),
             (8, x, y, 5) => Box::new(move |cpu| subxy(cpu, to_x(x), to_y(y))),
-            (8, x, y, 6) => Box::new(move |cpu| shiftxyr(cpu, to_x(x), to_y(y))),
+            (8, x, y, 6) => Box::new(move |cpu| shiftxr(cpu, to_x(x))),
+            //(8, x, y, 6) => Box::new(move |cpu| shiftxyr(cpu, to_x(x), to_y(y))),
             (8, x, y, 7) => Box::new(move |cpu| subyx(cpu, to_x(x), to_y(y))),
-            (8, x, y, 0xE) => Box::new(move |cpu| shiftxyl(cpu, to_x(x), to_y(y))),
+            (8, x, y, 0xE) => Box::new(move |cpu| shiftxl(cpu, to_x(x))),
+            //(8, x, y, 0xE) => Box::new(move |cpu| shiftxyl(cpu, to_x(x), to_y(y))),
             (9, x, y, 0) => Box::new(move |cpu| skipxy_neq(cpu, to_x(x), to_y(y))),
             (0xA, _, _, _) => Box::new(move |cpu| seti(cpu, to_nnn(opcode))),
             (0xB, _, _, _) => Box::new(move |cpu| jmp0(cpu, to_nnn(opcode))),
+            (0xC, x, _, _) => Box::new(move |cpu| rand(cpu, to_x(x), to_nn(opcode))),
             (0xD, x, y, n) => Box::new(move |cpu| draw(cpu, x as usize, y as usize, n as usize)),
             (0xE, x, 9, 0xE) => Box::new(move |cpu| skipk(cpu, x as usize)),
             (0xE, x, 0xA, 1) => Box::new(move |cpu| skipnk(cpu, x as usize)),
             (0xF, x, 0, 0xA) => Box::new(move |cpu| get_key(cpu, x as usize)),
             (0xF, x, 1, 0xE) => Box::new(move |cpu| addi(cpu, to_x(x))),
+            (0xF, x, 2, 9) => Box::new(move |cpu| font_char(cpu, to_x(x))),
             (0xF, x, 3, 3) => Box::new(move |cpu| bcd(cpu, to_x(x))),
-            (0xF, x, 5, 5) => Box::new(move |cpu| stxi(cpu, to_x(x))),
-            (0xF, x, 6, 5) => Box::new(move |cpu| ldxi(cpu, to_x(x))),
+            (0xF, x, 5, 5) => Box::new(move |cpu| stx(cpu, to_x(x))),
+            //(0xF, x, 5, 5) => Box::new(move |cpu| stxi(cpu, to_x(x))),
+            (0xF, x, 6, 5) => Box::new(move |cpu| ldx(cpu, to_x(x))),
+            //(0xF, x, 6, 5) => Box::new(move |cpu| ldxi(cpu, to_x(x))),
             (0xF, x, 0, 7) => Box::new(move |cpu| lddt(cpu, to_x(x))),
             (0xF, x, 1, 5) => Box::new(move |cpu| stdt(cpu, to_x(x))),
             (0xF, x, 1, 8) => Box::new(move |cpu| stst(cpu, to_x(x))),
@@ -184,7 +202,7 @@ impl Cpu {
         }
     }
 
-    fn tick_timers(&mut self) {
+    pub fn tick_timers(&mut self) {
         if self.delay_timer > 0 {
             self.delay_timer -= 1;
         }
@@ -210,7 +228,7 @@ fn setx(cpu: &mut Cpu, x: usize, nn: u8) {
 }
 
 fn addx(cpu: &mut Cpu, x: usize, nn: u8) {
-    cpu.v[x] += nn;
+    cpu.v[x] = cpu.v[x].wrapping_add(nn);
 }
 
 fn seti(cpu: &mut Cpu, nnn: usize) {
@@ -302,13 +320,13 @@ fn addxyc(cpu: &mut Cpu, x: usize, y: usize) {
 fn subxy(cpu: &mut Cpu, x: usize, y: usize) {
     let (result, borrow) = cpu.v[x].overflowing_sub(cpu.v[y]);
     cpu.v[x] = result;
-    cpu.v[0xF] = borrow as u8;
+    cpu.v[0xF] = !borrow as u8;
 }
 
 fn subyx(cpu: &mut Cpu, x: usize, y: usize) {
     let (result, borrow) = cpu.v[y].overflowing_sub(cpu.v[x]);
     cpu.v[y] = result;
-    cpu.v[0xF] = borrow as u8;
+    cpu.v[0xF] = !borrow as u8;
 }
 
 fn shiftxyr(cpu: &mut Cpu, x: usize, y: usize) {
@@ -427,6 +445,11 @@ fn stdt(cpu: &mut Cpu, x: usize) {
 
 fn stst(cpu: &mut Cpu, x: usize) {
     cpu.sound_timer = cpu.v[x];
+}
+
+fn font_char(cpu: &mut Cpu, x: usize) {
+    let digit = (cpu.v[x] & 0x000F) as usize;
+    cpu.idx = FONT_ENTRY_POINT + (digit * DIGIT_SIZE);
 }
 
 #[cfg(test)]
