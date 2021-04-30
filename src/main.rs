@@ -1,5 +1,5 @@
 use std::fs::File;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
@@ -7,14 +7,15 @@ use sdl2::pixels::Color;
 use sdl2::rect::Rect;
 use sdl2::Sdl;
 
-use crate::drivers::display::DisplayDriver;
-use crate::drivers::input::InputDriver;
-use crate::drivers::input::PollResult;
 use constants::hardware::SCALE_FACTOR;
 use constants::hardware::{SCREEN_HEIGHT, SCREEN_WIDTH};
 use constants::instruction::*;
 use cpu::Cpu;
 use cpu::Pixel;
+
+use crate::drivers::display::DisplayDriver;
+use crate::drivers::input::InputDriver;
+use crate::drivers::input::PollResult;
 
 mod chip8;
 mod constants;
@@ -30,19 +31,19 @@ fn main() {
     let mut display = DisplayDriver::new(&sdl_context, screen_width, screen_height);
     let mut input = InputDriver::new(&sdl_context);
     let mut cpu = Cpu::new();
-    let mut f = File::open("roms/ibm_logo.ch8").unwrap();
+    let mut f = File::open("roms/tetris.ch8").unwrap();
     cpu.load(f);
-    cpu.run();
-
-    display.draw(cpu.display);
 
     loop {
-        std::thread::sleep(Duration::new(0, 1_000_000_000u32 / 60));
+        cpu.run_cycles(8);
 
         match input.poll() {
             PollResult::Quit => break,
             PollResult::Keys(keys) => cpu.press_keys(&keys),
         }
+
+        cpu.tick_timers();
+        display.draw(cpu.display);
     }
 
     return;

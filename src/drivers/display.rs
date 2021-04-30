@@ -1,10 +1,10 @@
-use sdl2::{Sdl, VideoSubsystem};
 use sdl2::pixels::Color;
 use sdl2::rect::Rect;
 use sdl2::render::Canvas;
 use sdl2::video::Window;
+use sdl2::{Sdl, VideoSubsystem};
 
-use crate::constants::hardware::{SCREEN_HEIGHT, SCREEN_WIDTH, SCREEN_SIZE, SCALE_FACTOR};
+use crate::constants::hardware::{SCALE_FACTOR, SCREEN_HEIGHT, SCREEN_SIZE, SCREEN_WIDTH};
 use crate::cpu::Pixel;
 
 pub struct DisplayDriver {
@@ -15,12 +15,13 @@ impl DisplayDriver {
     pub fn new(sdl_context: &Sdl, screen_width: u32, screen_height: u32) -> DisplayDriver {
         let video_subsystem = sdl_context.video().unwrap();
 
-        let window = video_subsystem.window("Huit", screen_width, screen_height)
+        let window = video_subsystem
+            .window("Huit", screen_width, screen_height)
             .position_centered()
             .build()
             .unwrap();
 
-        let mut canvas = window.into_canvas().build().unwrap();
+        let mut canvas = window.into_canvas().present_vsync().build().unwrap();
 
         canvas.set_draw_color(Color::RGB(0, 0, 0));
         canvas.clear();
@@ -36,7 +37,8 @@ impl DisplayDriver {
                 self.canvas.set_draw_color(color);
                 let x = (x * SCALE_FACTOR) as i32;
                 let y = (y * SCALE_FACTOR) as i32;
-                self.canvas.fill_rect(Rect::new(x, y, SCALE_FACTOR as u32, SCALE_FACTOR as u32));
+                self.canvas
+                    .fill_rect(Rect::new(x, y, SCALE_FACTOR as u32, SCALE_FACTOR as u32));
             }
         }
         self.canvas.present();
