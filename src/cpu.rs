@@ -6,12 +6,10 @@ use rand::Rng;
 
 use crate::constants::font::{DIGIT_SIZE, FONT, FONT_SIZE};
 use crate::constants::hardware::FONT_ENTRY_POINT;
-use crate::drivers::input::InputDriver;
 
 use super::constants::hardware::{
     ENTRY_POINT, MEMORY_SIZE, SCREEN_HEIGHT, SCREEN_WIDTH, STACK_SIZE,
 };
-use super::constants::instruction::*;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Pixel {
@@ -73,24 +71,7 @@ impl Cpu {
 
     pub fn load(&mut self, mut rom: File) {
         let buffer = &mut self.memory[ENTRY_POINT..];
-        rom.read(buffer);
-    }
-
-    pub fn run(&mut self) {
-        for i in 0..20 {
-            self.run_cycle();
-        }
-
-        for y in 0..SCREEN_HEIGHT {
-            for x in 0..SCREEN_WIDTH {
-                if self.get_pixel(x, y) == Pixel::White {
-                    print!(" ");
-                } else {
-                    print!("x");
-                }
-            }
-            print!("\n");
-        }
+        rom.read(buffer).expect("Could not read rom file");
     }
 
     pub fn run_cycle(&mut self) {
@@ -136,9 +117,9 @@ impl Cpu {
             (8, x, y, 3) => Box::new(move |cpu| xorxy(cpu, x, y)),
             (8, x, y, 4) => Box::new(move |cpu| addxyc(cpu, x, y)),
             (8, x, y, 5) => Box::new(move |cpu| subxy(cpu, x, y)),
-            (8, x, y, 6) => Box::new(move |cpu| shiftxr(cpu, x)),
+            (8, x, _, 6) => Box::new(move |cpu| shiftxr(cpu, x)),
             (8, x, y, 7) => Box::new(move |cpu| subyx(cpu, x, y)),
-            (8, x, y, 0xE) => Box::new(move |cpu| shiftxl(cpu, x)),
+            (8, x, _, 0xE) => Box::new(move |cpu| shiftxl(cpu, x)),
             (9, x, y, 0) => Box::new(move |cpu| skipxy_neq(cpu, x, y)),
             (0xA, _, _, _) => Box::new(move |cpu| seti(cpu, to_nnn(opcode))),
             (0xB, _, _, _) => Box::new(move |cpu| jmp0(cpu, to_nnn(opcode))),

@@ -1,6 +1,5 @@
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
-use sdl2::log::Category::Input;
 use sdl2::Sdl;
 
 pub struct InputDriver {

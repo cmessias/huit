@@ -2,7 +2,7 @@ use sdl2::pixels::Color;
 use sdl2::rect::Rect;
 use sdl2::render::Canvas;
 use sdl2::video::Window;
-use sdl2::{Sdl, VideoSubsystem};
+use sdl2::Sdl;
 
 use crate::constants::hardware::{SCALE_FACTOR, SCREEN_HEIGHT, SCREEN_SIZE, SCREEN_WIDTH};
 use crate::cpu::Pixel;
@@ -37,8 +37,10 @@ impl DisplayDriver {
                 self.canvas.set_draw_color(color);
                 let x = (x * SCALE_FACTOR) as i32;
                 let y = (y * SCALE_FACTOR) as i32;
+
                 self.canvas
-                    .fill_rect(Rect::new(x, y, SCALE_FACTOR as u32, SCALE_FACTOR as u32));
+                    .fill_rect(Rect::new(x, y, SCALE_FACTOR as u32, SCALE_FACTOR as u32))
+                    .expect("Could not draw on screen");
             }
         }
         self.canvas.present();
@@ -53,6 +55,6 @@ impl DisplayDriver {
     }
 
     fn get_pixel(display: &[Pixel; SCREEN_SIZE], x: usize, y: usize) -> Pixel {
-        return display[x + y * SCREEN_WIDTH]
+        return display[x + y * SCREEN_WIDTH];
     }
 }
