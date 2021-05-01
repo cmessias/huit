@@ -1,15 +1,17 @@
-use super::constants::hardware::{
-    ENTRY_POINT, MEMORY_SIZE, SCREEN_HEIGHT, SCREEN_WIDTH, STACK_SIZE,
-};
-use super::constants::instruction::*;
+use std::collections::VecDeque;
+use std::fs::File;
+use std::io::Read;
+
+use rand::Rng;
 
 use crate::constants::font::{DIGIT_SIZE, FONT, FONT_SIZE};
 use crate::constants::hardware::FONT_ENTRY_POINT;
 use crate::drivers::input::InputDriver;
-use rand::Rng;
-use std::collections::VecDeque;
-use std::fs::File;
-use std::io::Read;
+
+use super::constants::hardware::{
+    ENTRY_POINT, MEMORY_SIZE, SCREEN_HEIGHT, SCREEN_WIDTH, STACK_SIZE,
+};
+use super::constants::instruction::*;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Pixel {
@@ -135,10 +137,8 @@ impl Cpu {
             (8, x, y, 4) => Box::new(move |cpu| addxyc(cpu, x, y)),
             (8, x, y, 5) => Box::new(move |cpu| subxy(cpu, x, y)),
             (8, x, y, 6) => Box::new(move |cpu| shiftxr(cpu, x)),
-            //(8, x, y, 6) => Box::new(move |cpu| shiftxyr(cpu, to_x(x), to_y(y))),
             (8, x, y, 7) => Box::new(move |cpu| subyx(cpu, x, y)),
             (8, x, y, 0xE) => Box::new(move |cpu| shiftxl(cpu, x)),
-            //(8, x, y, 0xE) => Box::new(move |cpu| shiftxyl(cpu, to_x(x), to_y(y))),
             (9, x, y, 0) => Box::new(move |cpu| skipxy_neq(cpu, x, y)),
             (0xA, _, _, _) => Box::new(move |cpu| seti(cpu, to_nnn(opcode))),
             (0xB, _, _, _) => Box::new(move |cpu| jmp0(cpu, to_nnn(opcode))),
@@ -151,9 +151,7 @@ impl Cpu {
             (0xF, x, 2, 9) => Box::new(move |cpu| font_char(cpu, x)),
             (0xF, x, 3, 3) => Box::new(move |cpu| bcd(cpu, x)),
             (0xF, x, 5, 5) => Box::new(move |cpu| stx(cpu, x)),
-            //(0xF, x, 5, 5) => Box::new(move |cpu| stxi(cpu, to_x(x))),
             (0xF, x, 6, 5) => Box::new(move |cpu| ldx(cpu, x)),
-            //(0xF, x, 6, 5) => Box::new(move |cpu| ldxi(cpu, to_x(x))),
             (0xF, x, 0, 7) => Box::new(move |cpu| lddt(cpu, x)),
             (0xF, x, 1, 5) => Box::new(move |cpu| stdt(cpu, x)),
             (0xF, x, 1, 8) => Box::new(move |cpu| stst(cpu, x)),
@@ -317,23 +315,11 @@ fn subyx(cpu: &mut Cpu, x: usize, y: usize) {
     cpu.v[0xF] = !borrow as u8;
 }
 
-fn shiftxyr(cpu: &mut Cpu, x: usize, y: usize) {
-    cpu.v[0xF] = cpu.v[y] & 1;
-    cpu.v[x] = cpu.v[y] >> 1;
-}
-
-fn shiftxyl(cpu: &mut Cpu, x: usize, y: usize) {
-    cpu.v[0xF] = (cpu.v[y] >> 7) & 1;
-    cpu.v[x] = cpu.v[y] << 1;
-}
-
-#[allow(dead_code)]
 fn shiftxr(cpu: &mut Cpu, x: usize) {
     cpu.v[0xF] = cpu.v[x] & 1;
     cpu.v[x] >>= 1;
 }
 
-#[allow(dead_code)]
 fn shiftxl(cpu: &mut Cpu, x: usize) {
     cpu.v[0xF] = (cpu.v[x] >> 7) & 1;
     cpu.v[x] <<= 1;
@@ -341,11 +327,6 @@ fn shiftxl(cpu: &mut Cpu, x: usize) {
 
 fn jmp0(cpu: &mut Cpu, nnn: usize) {
     cpu.pc = (cpu.v[0] as usize) + nnn;
-}
-
-#[allow(dead_code)]
-fn jmpx(cpu: &mut Cpu, x: usize, nnn: usize) {
-    cpu.pc = (cpu.v[x] as usize) + nnn;
 }
 
 fn rand(cpu: &mut Cpu, x: usize, nn: u8) {
@@ -356,42 +337,18 @@ fn addi(cpu: &mut Cpu, x: usize) {
     cpu.idx = cpu.idx.wrapping_add(cpu.v[x] as usize);
 }
 
-#[allow(dead_code)]
-fn addic(cpu: &mut Cpu, x: usize) {
-    cpu.idx = cpu.idx.wrapping_add(cpu.v[x] as usize);
-    if cpu.idx > 0xFFF {
-        cpu.v[0xF] = 1;
-    }
-}
-
 fn bcd(cpu: &mut Cpu, x: usize) {
     cpu.memory[cpu.idx] = cpu.v[x] / 100;
     cpu.memory[cpu.idx + 1] = (cpu.v[x] / 10) % 10;
     cpu.memory[cpu.idx + 2] = cpu.v[x] % 10;
 }
 
-fn stxi(cpu: &mut Cpu, x: usize) {
-    let memory = &mut cpu.memory[cpu.idx..=(cpu.idx + x)];
-    let registers = &cpu.v[0..=x];
-    memory.copy_from_slice(registers);
-    cpu.idx += x + 1;
-}
-
-#[allow(dead_code)]
 fn stx(cpu: &mut Cpu, x: usize) {
     let memory = &mut cpu.memory[cpu.idx..=(cpu.idx + x)];
     let registers = &cpu.v[0..=x];
     memory.copy_from_slice(registers);
 }
 
-fn ldxi(cpu: &mut Cpu, x: usize) {
-    let registers = &mut cpu.v[0..=x];
-    let memory = &cpu.memory[cpu.idx..=(cpu.idx + x)];
-    registers.copy_from_slice(memory);
-    cpu.idx += x + 1;
-}
-
-#[allow(dead_code)]
 fn ldx(cpu: &mut Cpu, x: usize) {
     let registers = &mut cpu.v[0..=x];
     let memory = &cpu.memory[cpu.idx..=(cpu.idx + x)];
@@ -444,7 +401,6 @@ fn font_char(cpu: &mut Cpu, x: usize) {
 mod tests {
     use crate::constants::hardware::{ENTRY_POINT, SCREEN_HEIGHT, SCREEN_WIDTH};
     use crate::cpu::{Cpu, Pixel};
-    use std::io::SeekFrom::End;
 
     #[test]
     fn should_clear_screen() {
@@ -659,7 +615,7 @@ mod tests {
 
         assert_eq!(cpu.v[1], 0xFE);
         assert_eq!(cpu.v[2], 1);
-        assert_eq!(cpu.v[0xF], 0);
+        assert_eq!(cpu.v[0xF], 1);
     }
 
     #[test]
@@ -673,7 +629,7 @@ mod tests {
 
         assert_eq!(cpu.v[1], 2);
         assert_eq!(cpu.v[2], 0xFF);
-        assert_eq!(cpu.v[0xF], 1);
+        assert_eq!(cpu.v[0xF], 0);
     }
 
     #[test]
@@ -687,7 +643,7 @@ mod tests {
 
         assert_eq!(cpu.v[2], 0xFE);
         assert_eq!(cpu.v[1], 1);
-        assert_eq!(cpu.v[0xF], 0);
+        assert_eq!(cpu.v[0xF], 1);
     }
 
     #[test]
@@ -701,62 +657,54 @@ mod tests {
 
         assert_eq!(cpu.v[2], 2);
         assert_eq!(cpu.v[1], 0xFF);
-        assert_eq!(cpu.v[0xF], 1);
-    }
-
-    #[test]
-    fn should_shiftxyr() {
-        let mut cpu = Cpu::new();
-        cpu.memory[ENTRY_POINT] = 0x81;
-        cpu.memory[ENTRY_POINT + 1] = 0x26;
-        cpu.v[1] = 0xAA;
-        cpu.v[2] = 0xFE;
-        cpu.run_cycle();
-
-        assert_eq!(cpu.v[1], 0x7F);
-        assert_eq!(cpu.v[2], 0xFE);
         assert_eq!(cpu.v[0xF], 0);
     }
 
     #[test]
-    fn should_shiftxyr_carry() {
+    fn should_shiftxr() {
         let mut cpu = Cpu::new();
         cpu.memory[ENTRY_POINT] = 0x81;
         cpu.memory[ENTRY_POINT + 1] = 0x26;
-        cpu.v[1] = 0xAA;
-        cpu.v[2] = 0xFF;
+        cpu.v[1] = 0xFE;
         cpu.run_cycle();
 
         assert_eq!(cpu.v[1], 0x7F);
-        assert_eq!(cpu.v[2], 0xFF);
-        assert_eq!(cpu.v[0xF], 1);
-    }
-
-    #[test]
-    fn should_shiftxyl() {
-        let mut cpu = Cpu::new();
-        cpu.memory[ENTRY_POINT] = 0x81;
-        cpu.memory[ENTRY_POINT + 1] = 0x2E;
-        cpu.v[1] = 0xAA;
-        cpu.v[2] = 0x7F;
-        cpu.run_cycle();
-
-        assert_eq!(cpu.v[1], 0xFE);
-        assert_eq!(cpu.v[2], 0x7F);
         assert_eq!(cpu.v[0xF], 0);
     }
 
     #[test]
-    fn should_shiftxyl_carry() {
+    fn should_shiftxr_carry() {
+        let mut cpu = Cpu::new();
+        cpu.memory[ENTRY_POINT] = 0x81;
+        cpu.memory[ENTRY_POINT + 1] = 0x26;
+        cpu.v[1] = 0xFF;
+        cpu.run_cycle();
+
+        assert_eq!(cpu.v[1], 0x7F);
+        assert_eq!(cpu.v[0xF], 1);
+    }
+
+    #[test]
+    fn should_shiftxl() {
         let mut cpu = Cpu::new();
         cpu.memory[ENTRY_POINT] = 0x81;
         cpu.memory[ENTRY_POINT + 1] = 0x2E;
-        cpu.v[1] = 0xAA;
-        cpu.v[2] = 0xFF;
+        cpu.v[1] = 0x7F;
         cpu.run_cycle();
 
         assert_eq!(cpu.v[1], 0xFE);
-        assert_eq!(cpu.v[2], 0xFF);
+        assert_eq!(cpu.v[0xF], 0);
+    }
+
+    #[test]
+    fn should_shiftxl_carry() {
+        let mut cpu = Cpu::new();
+        cpu.memory[ENTRY_POINT] = 0x81;
+        cpu.memory[ENTRY_POINT + 1] = 0x2E;
+        cpu.v[1] = 0xFF;
+        cpu.run_cycle();
+
+        assert_eq!(cpu.v[1], 0xFE);
         assert_eq!(cpu.v[0xF], 1);
     }
 
@@ -798,7 +746,7 @@ mod tests {
     }
 
     #[test]
-    fn should_stxi_all_registers() {
+    fn should_stx_all_registers() {
         let mut cpu = Cpu::new();
         let x: usize = 0xF;
         cpu.memory[ENTRY_POINT] = 0xF0 + x as u8;
@@ -808,7 +756,7 @@ mod tests {
         cpu.v = [1; 16];
 
         cpu.run_cycle();
-        assert_eq!(cpu.idx, initial_idx + x + 1);
+        assert_eq!(cpu.idx, initial_idx);
         cpu.idx = initial_idx;
 
         let memory_region = &cpu.memory[cpu.idx..=(cpu.idx + x)];
@@ -816,7 +764,7 @@ mod tests {
     }
 
     #[test]
-    fn should_stxi_up_to_x_registers() {
+    fn should_stx_up_to_x_registers() {
         let mut cpu = Cpu::new();
         let x = 9;
         cpu.memory[ENTRY_POINT] = 0xF0 + x as u8;
@@ -826,7 +774,7 @@ mod tests {
         cpu.v = [1; 16];
 
         cpu.run_cycle();
-        assert_eq!(cpu.idx, initial_idx + x + 1);
+        assert_eq!(cpu.idx, initial_idx);
         cpu.idx = initial_idx;
 
         let initial_memory_region = &cpu.memory[cpu.idx..=(cpu.idx + x)];
@@ -837,7 +785,7 @@ mod tests {
     }
 
     #[test]
-    fn should_ldxi_all_registers() {
+    fn should_ldx_all_registers() {
         let mut cpu = Cpu::new();
         let x = 0xF;
         cpu.memory[ENTRY_POINT] = 0xF0 + x as u8;
@@ -848,12 +796,12 @@ mod tests {
         memory_region.copy_from_slice(&[1u8; 16]);
 
         cpu.run_cycle();
-        assert_eq!(cpu.idx, initial_idx + x + 1);
+        assert_eq!(cpu.idx, initial_idx);
         assert_eq!(cpu.v, [1u8; 16]);
     }
 
     #[test]
-    fn should_ldxi_up_to_x_registers() {
+    fn should_ldx_up_to_x_registers() {
         let mut cpu = Cpu::new();
         let x = 9;
         cpu.memory[ENTRY_POINT] = 0xF0 + x as u8;
@@ -864,7 +812,7 @@ mod tests {
         memory_region.copy_from_slice(&[1u8; 10]);
 
         cpu.run_cycle();
-        assert_eq!(cpu.idx, initial_idx + x + 1);
+        assert_eq!(cpu.idx, initial_idx);
 
         let expected: [u8; 16] = [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0];
         assert_eq!(cpu.v, expected);
@@ -934,7 +882,7 @@ mod tests {
     }
 
     #[test]
-    fn should_load_dt() {
+    fn should_lddt() {
         let mut cpu = Cpu::new();
         cpu.memory[ENTRY_POINT] = 0xF5;
         cpu.memory[ENTRY_POINT + 1] = 0x07;
@@ -945,7 +893,7 @@ mod tests {
     }
 
     #[test]
-    fn should_set_dt() {
+    fn should_stdt() {
         let mut cpu = Cpu::new();
         cpu.memory[ENTRY_POINT] = 0xF5;
         cpu.memory[ENTRY_POINT + 1] = 0x15;
@@ -956,7 +904,7 @@ mod tests {
     }
 
     #[test]
-    fn should_set_st() {
+    fn should_stst() {
         let mut cpu = Cpu::new();
         cpu.memory[ENTRY_POINT] = 0xF5;
         cpu.memory[ENTRY_POINT + 1] = 0x18;
