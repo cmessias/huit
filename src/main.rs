@@ -1,14 +1,10 @@
-use std::fs::File;
-
-use sdl2::Sdl;
-
-use cpu::Cpu;
-
 use crate::chip8::Chip8;
 use crate::constants::hardware::{SCREEN_HEIGHT, SCREEN_WIDTH};
 use crate::drivers::display::DisplayDriver;
 use crate::drivers::input::InputDriver;
-
+use cpu::Cpu;
+use sdl2::Sdl;
+use std::fs::File;
 mod chip8;
 mod constants;
 mod cpu;

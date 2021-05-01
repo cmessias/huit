@@ -1,11 +1,12 @@
+use crate::constants::hardware::{
+    INTERNAL_SCREEN_HEIGHT, INTERNAL_SCREEN_WIDTH, SCALE_FACTOR, SCREEN_SIZE,
+};
+use crate::cpu::Pixel;
 use sdl2::pixels::Color;
 use sdl2::rect::Rect;
 use sdl2::render::Canvas;
 use sdl2::video::Window;
 use sdl2::Sdl;
-
-use crate::constants::hardware::{SCALE_FACTOR, INTERNAL_SCREEN_HEIGHT, SCREEN_SIZE, INTERNAL_SCREEN_WIDTH};
-use crate::cpu::Pixel;
 
 pub struct DisplayDriver {
     canvas: Canvas<Window>,

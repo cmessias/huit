@@ -1,15 +1,12 @@
-use std::collections::VecDeque;
-use std::fs::File;
-use std::io::Read;
-
-use rand::Rng;
-
-use crate::constants::font::{DIGIT_SIZE, FONT, FONT_SIZE};
-use crate::constants::hardware::{FONT_ENTRY_POINT, SCREEN_SIZE};
-
 use super::constants::hardware::{
     ENTRY_POINT, INTERNAL_SCREEN_HEIGHT, INTERNAL_SCREEN_WIDTH, MEMORY_SIZE, STACK_SIZE,
 };
+use crate::constants::font::{DIGIT_SIZE, FONT, FONT_SIZE};
+use crate::constants::hardware::{FONT_ENTRY_POINT, SCREEN_SIZE};
+use rand::Rng;
+use std::collections::VecDeque;
+use std::fs::File;
+use std::io::Read;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Pixel {
