@@ -8,31 +8,6 @@ use std::collections::VecDeque;
 use std::fs::File;
 use std::io::Read;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum Pixel {
-    Black,
-    White,
-}
-
-impl Pixel {
-    fn flip(&self) -> Pixel {
-        match &self {
-            Pixel::White => Pixel::Black,
-            Pixel::Black => Pixel::White,
-        }
-    }
-}
-
-type Instruction = Box<dyn FnOnce(&mut Cpu)>;
-
-fn to_nnn(opcode: u16) -> usize {
-    return (opcode & 0x0FFF) as usize;
-}
-
-fn to_nn(opcode: u16) -> u8 {
-    return (opcode & 0x00FF) as u8;
-}
-
 pub struct Cpu {
     pub memory: [u8; MEMORY_SIZE],
     pub display: [Pixel; SCREEN_SIZE],
@@ -45,6 +20,8 @@ pub struct Cpu {
     delay_timer: u8,
     sound_timer: u8,
 }
+
+type Instruction = Box<dyn FnOnce(&mut Cpu)>;
 
 impl Cpu {
     pub fn new() -> Cpu {
@@ -173,6 +150,29 @@ impl Cpu {
 
         if self.sound_timer > 0 {
             self.sound_timer -= 1;
+        }
+    }
+}
+
+fn to_nnn(opcode: u16) -> usize {
+    return (opcode & 0x0FFF) as usize;
+}
+
+fn to_nn(opcode: u16) -> u8 {
+    return (opcode & 0x00FF) as u8;
+}
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+pub enum Pixel {
+    Black,
+    White,
+}
+
+impl Pixel {
+    fn flip(&self) -> Pixel {
+        match &self {
+            Pixel::White => Pixel::Black,
+            Pixel::Black => Pixel::White,
         }
     }
 }
