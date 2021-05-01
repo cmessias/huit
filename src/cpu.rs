@@ -185,10 +185,6 @@ impl Cpu {
         self.display[x + y * SCREEN_WIDTH]
     }
 
-    fn set_pixel(&mut self, x: usize, y: usize, pixel: Pixel) {
-        self.display[x + y * SCREEN_WIDTH] = pixel;
-    }
-
     fn pixel_flip(&mut self, x: usize, y: usize) {
         let pixel = x + y * SCREEN_WIDTH;
         self.display[pixel] = self.display[pixel].flip()
@@ -215,7 +211,7 @@ impl Cpu {
 
 fn clr(cpu: &mut Cpu) {
     for i in 0..(SCREEN_HEIGHT * SCREEN_WIDTH) {
-        cpu.display[i] = Pixel::White;
+        cpu.display[i] = Pixel::Black;
     }
 }
 
@@ -463,10 +459,10 @@ mod tests {
         let mut cpu = Cpu::new();
         cpu.memory[ENTRY_POINT] = 0x00;
         cpu.memory[ENTRY_POINT + 1] = 0xE0;
-        cpu.display = [Pixel::Black; SCREEN_WIDTH * SCREEN_HEIGHT];
+        cpu.display = [Pixel::White; SCREEN_WIDTH * SCREEN_HEIGHT];
         cpu.run_cycle();
 
-        assert_eq!(cpu.display, [Pixel::White; SCREEN_WIDTH * SCREEN_HEIGHT])
+        assert_eq!(cpu.display, [Pixel::Black; SCREEN_WIDTH * SCREEN_HEIGHT])
     }
 
     #[test]

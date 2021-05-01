@@ -45,14 +45,14 @@ impl DisplayDriver {
     }
 
     fn get_color(&self, display: &[Pixel; SCREEN_SIZE], x: usize, y: usize) -> Color {
-        return if display[DisplayDriver::get_pixel(x, y)] == Pixel::White {
-            Color::RGB(0, 0, 0)
-        } else {
+        return if DisplayDriver::get_pixel(&display, x, y) == Pixel::White {
             Color::RGB(250, 250, 250)
+        } else {
+            Color::RGB(0, 0, 0)
         };
     }
 
-    fn get_pixel(x: usize, y: usize) -> usize {
-        x + y * SCREEN_WIDTH
+    fn get_pixel(display: &[Pixel; SCREEN_SIZE], x: usize, y: usize) -> Pixel {
+        return display[x + y * SCREEN_WIDTH]
     }
 }
