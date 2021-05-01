@@ -71,45 +71,69 @@ impl Cpu {
 
     fn decode(&self, opcode: u16) -> Instruction {
         let a = ((opcode & 0xF000) >> 12) as u8;
-        let b = ((opcode & 0x0F00) >> 8) as usize;
-        let c = ((opcode & 0x00F0) >> 4) as usize;
-        let d = (opcode & 0x000F) as u8;
+        let x = ((opcode & 0x0F00) >> 8) as usize;
+        let y = ((opcode & 0x00F0) >> 4) as usize;
+        let n = (opcode & 0x000F) as u8;
 
-        return match (a, b, c, d) {
-            (0, 0, 0xE, 0) => Box::new(|cpu| clr(cpu)),
-            (0, 0, 0xE, 0xE) => Box::new(|cpu| ret(cpu)),
-            (1, _, _, _) => Box::new(move |cpu| jmp(cpu, to_nnn(opcode))),
-            (2, _, _, _) => Box::new(move |cpu| call(cpu, to_nnn(opcode))),
-            (3, x, _, _) => Box::new(move |cpu| skipx_eq(cpu, x, to_nn(opcode))),
-            (4, x, _, _) => Box::new(move |cpu| skipx_neq(cpu, x, to_nn(opcode))),
-            (5, x, y, 0) => Box::new(move |cpu| skipxy_eq(cpu, x, y)),
-            (6, x, _, _) => Box::new(move |cpu| setx(cpu, x, to_nn(opcode))),
-            (7, x, _, _) => Box::new(move |cpu| addx(cpu, x, to_nn(opcode))),
-            (8, x, y, 0) => Box::new(move |cpu| setxy(cpu, x, y)),
-            (8, x, y, 1) => Box::new(move |cpu| orxy(cpu, x, y)),
-            (8, x, y, 2) => Box::new(move |cpu| andxy(cpu, x, y)),
-            (8, x, y, 3) => Box::new(move |cpu| xorxy(cpu, x, y)),
-            (8, x, y, 4) => Box::new(move |cpu| addxyc(cpu, x, y)),
-            (8, x, y, 5) => Box::new(move |cpu| subxy(cpu, x, y)),
-            (8, x, _, 6) => Box::new(move |cpu| shiftxr(cpu, x)),
-            (8, x, y, 7) => Box::new(move |cpu| subyx(cpu, x, y)),
-            (8, x, _, 0xE) => Box::new(move |cpu| shiftxl(cpu, x)),
-            (9, x, y, 0) => Box::new(move |cpu| skipxy_neq(cpu, x, y)),
-            (0xA, _, _, _) => Box::new(move |cpu| seti(cpu, to_nnn(opcode))),
-            (0xB, _, _, _) => Box::new(move |cpu| jmp0(cpu, to_nnn(opcode))),
-            (0xC, x, _, _) => Box::new(move |cpu| rand(cpu, x, to_nn(opcode))),
-            (0xD, x, y, n) => Box::new(move |cpu| draw(cpu, x, y, n as usize)),
-            (0xE, x, 9, 0xE) => Box::new(move |cpu| skipk(cpu, x)),
-            (0xE, x, 0xA, 1) => Box::new(move |cpu| skipnk(cpu, x)),
-            (0xF, x, 0, 0xA) => Box::new(move |cpu| get_key(cpu, x)),
-            (0xF, x, 1, 0xE) => Box::new(move |cpu| addi(cpu, x)),
-            (0xF, x, 2, 9) => Box::new(move |cpu| font_char(cpu, x)),
-            (0xF, x, 3, 3) => Box::new(move |cpu| bcd(cpu, x)),
-            (0xF, x, 5, 5) => Box::new(move |cpu| stx(cpu, x)),
-            (0xF, x, 6, 5) => Box::new(move |cpu| ldx(cpu, x)),
-            (0xF, x, 0, 7) => Box::new(move |cpu| lddt(cpu, x)),
-            (0xF, x, 1, 5) => Box::new(move |cpu| stdt(cpu, x)),
-            (0xF, x, 1, 8) => Box::new(move |cpu| stst(cpu, x)),
+        return match a {
+            0 => match n {
+                0 => Box::new(|cpu| clr(cpu)),
+                0xE => Box::new(|cpu| ret(cpu)),
+                _ => panic!("unknown instruction: {}", opcode),
+            },
+            1 => Box::new(move |cpu| jmp(cpu, to_nnn(opcode))),
+            2 => Box::new(move |cpu| call(cpu, to_nnn(opcode))),
+            3 => Box::new(move |cpu| skipx_eq(cpu, x, to_nn(opcode))),
+            4 => Box::new(move |cpu| skipx_neq(cpu, x, to_nn(opcode))),
+            5 => {
+                if n == 0 {
+                    Box::new(move |cpu| skipxy_eq(cpu, x, y))
+                } else {
+                    panic!("unknown instruction: {}", opcode)
+                }
+            }
+            6 => Box::new(move |cpu| setx(cpu, x, to_nn(opcode))),
+            7 => Box::new(move |cpu| addx(cpu, x, to_nn(opcode))),
+            8 => match n {
+                0 => Box::new(move |cpu| setxy(cpu, x, y)),
+                1 => Box::new(move |cpu| orxy(cpu, x, y)),
+                2 => Box::new(move |cpu| andxy(cpu, x, y)),
+                3 => Box::new(move |cpu| xorxy(cpu, x, y)),
+                4 => Box::new(move |cpu| addxyc(cpu, x, y)),
+                5 => Box::new(move |cpu| subxy(cpu, x, y)),
+                6 => Box::new(move |cpu| shiftxr(cpu, x)),
+                7 => Box::new(move |cpu| subyx(cpu, x, y)),
+                0xE => Box::new(move |cpu| shiftxl(cpu, x)),
+                _ => panic!("unknown instruction: {}", opcode),
+            },
+            9 => {
+                if n == 0 {
+                    Box::new(move |cpu| skipxy_neq(cpu, x, y))
+                } else {
+                    panic!("unknown instruction: {}", opcode)
+                }
+            }
+            0xA => Box::new(move |cpu| seti(cpu, to_nnn(opcode))),
+            0xB => Box::new(move |cpu| jmp0(cpu, to_nnn(opcode))),
+            0xC => Box::new(move |cpu| rand(cpu, x, to_nn(opcode))),
+            0xD => Box::new(move |cpu| draw(cpu, x, y, n as usize)),
+            0xE => match (y, n) {
+                (9, 0xE) => Box::new(move |cpu| skipk(cpu, x)),
+                (0xA, 1) => Box::new(move |cpu| skipnk(cpu, x)),
+                _ => panic!("unknown instruction: {}", opcode),
+            },
+            0xF => match (y, n) {
+                (0, 7) => Box::new(move |cpu| lddt(cpu, x)),
+                (0, 0xA) => Box::new(move |cpu| get_key(cpu, x)),
+                (1, 5) => Box::new(move |cpu| stdt(cpu, x)),
+                (1, 8) => Box::new(move |cpu| stst(cpu, x)),
+                (1, 0xE) => Box::new(move |cpu| addi(cpu, x)),
+                (2, 9) => Box::new(move |cpu| font_char(cpu, x)),
+                (3, 3) => Box::new(move |cpu| bcd(cpu, x)),
+                (5, 5) => Box::new(move |cpu| stx(cpu, x)),
+                (6, 5) => Box::new(move |cpu| ldx(cpu, x)),
+                _ => panic!("unknown instruction: {}", opcode),
+            },
             _ => panic!("unknown instruction: {}", opcode),
         };
     }
@@ -162,7 +186,7 @@ fn to_nn(opcode: u16) -> u8 {
     return (opcode & 0x00FF) as u8;
 }
 
-#[derive(Clone, Copy, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Pixel {
     Black,
     White,
@@ -377,9 +401,7 @@ fn font_char(cpu: &mut Cpu, x: usize) {
 
 #[cfg(test)]
 mod tests {
-    use crate::constants::hardware::{
-        ENTRY_POINT, INTERNAL_SCREEN_HEIGHT, INTERNAL_SCREEN_WIDTH, SCREEN_SIZE,
-    };
+    use crate::constants::hardware::{ENTRY_POINT, SCREEN_SIZE};
     use crate::cpu::{Cpu, Pixel};
 
     #[test]
