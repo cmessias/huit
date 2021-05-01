@@ -5,10 +5,10 @@ use std::io::Read;
 use rand::Rng;
 
 use crate::constants::font::{DIGIT_SIZE, FONT, FONT_SIZE};
-use crate::constants::hardware::FONT_ENTRY_POINT;
+use crate::constants::hardware::{FONT_ENTRY_POINT, SCREEN_SIZE};
 
 use super::constants::hardware::{
-    ENTRY_POINT, MEMORY_SIZE, SCREEN_HEIGHT, SCREEN_WIDTH, STACK_SIZE,
+    ENTRY_POINT, INTERNAL_SCREEN_HEIGHT, INTERNAL_SCREEN_WIDTH, MEMORY_SIZE, STACK_SIZE,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -38,7 +38,7 @@ fn to_nn(opcode: u16) -> u8 {
 
 pub struct Cpu {
     pub memory: [u8; MEMORY_SIZE],
-    pub display: [Pixel; SCREEN_WIDTH * SCREEN_HEIGHT],
+    pub display: [Pixel; SCREEN_SIZE],
     pc: usize,
     idx: usize,
     stack: VecDeque<usize>,
@@ -57,7 +57,7 @@ impl Cpu {
 
         Cpu {
             memory,
-            display: [Pixel::Black; SCREEN_WIDTH * SCREEN_HEIGHT],
+            display: [Pixel::Black; SCREEN_SIZE],
             pc: ENTRY_POINT,
             idx: 0,
             stack: VecDeque::with_capacity(STACK_SIZE),
@@ -145,19 +145,19 @@ impl Cpu {
     }
 
     fn wrapx_on_screen(&self, x: u8) -> usize {
-        (x % (SCREEN_WIDTH as u8)) as usize
+        (x % (INTERNAL_SCREEN_WIDTH as u8)) as usize
     }
 
     fn wrapy_on_screen(&self, y: u8) -> usize {
-        (y % (SCREEN_HEIGHT as u8)) as usize
+        (y % (INTERNAL_SCREEN_HEIGHT as u8)) as usize
     }
 
     pub fn get_pixel(&self, x: usize, y: usize) -> Pixel {
-        self.display[x + y * SCREEN_WIDTH]
+        self.display[x + y * INTERNAL_SCREEN_WIDTH]
     }
 
     fn pixel_flip(&mut self, x: usize, y: usize) {
-        let pixel = x + y * SCREEN_WIDTH;
+        let pixel = x + y * INTERNAL_SCREEN_WIDTH;
         self.display[pixel] = self.display[pixel].flip()
     }
 
@@ -181,7 +181,7 @@ impl Cpu {
 }
 
 fn clr(cpu: &mut Cpu) {
-    for i in 0..(SCREEN_HEIGHT * SCREEN_WIDTH) {
+    for i in 0..SCREEN_SIZE {
         cpu.display[i] = Pixel::Black;
     }
 }
@@ -208,12 +208,12 @@ fn draw(cpu: &mut Cpu, x: usize, y: usize, n: usize) {
     cpu.v[0xF] = 0;
 
     (0..n).for_each(|n: usize| {
-        if y + n >= SCREEN_HEIGHT {
+        if y + n >= INTERNAL_SCREEN_HEIGHT {
             return;
         }
         let row = cpu.memory[cpu.idx + n];
         (0..8).for_each(|i| {
-            if x + i >= SCREEN_WIDTH {
+            if x + i >= INTERNAL_SCREEN_WIDTH {
                 return;
             }
             let sprite = (row >> (7 - i)) & 1;
@@ -380,7 +380,9 @@ fn font_char(cpu: &mut Cpu, x: usize) {
 
 #[cfg(test)]
 mod tests {
-    use crate::constants::hardware::{ENTRY_POINT, SCREEN_HEIGHT, SCREEN_WIDTH};
+    use crate::constants::hardware::{
+        ENTRY_POINT, INTERNAL_SCREEN_HEIGHT, INTERNAL_SCREEN_WIDTH, SCREEN_SIZE,
+    };
     use crate::cpu::{Cpu, Pixel};
 
     #[test]
@@ -388,10 +390,10 @@ mod tests {
         let mut cpu = Cpu::new();
         cpu.memory[ENTRY_POINT] = 0x00;
         cpu.memory[ENTRY_POINT + 1] = 0xE0;
-        cpu.display = [Pixel::White; SCREEN_WIDTH * SCREEN_HEIGHT];
+        cpu.display = [Pixel::White; SCREEN_SIZE];
         cpu.run_cycle();
 
-        assert_eq!(cpu.display, [Pixel::Black; SCREEN_WIDTH * SCREEN_HEIGHT])
+        assert_eq!(cpu.display, [Pixel::Black; SCREEN_SIZE])
     }
 
     #[test]

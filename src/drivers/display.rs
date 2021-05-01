@@ -4,7 +4,7 @@ use sdl2::render::Canvas;
 use sdl2::video::Window;
 use sdl2::Sdl;
 
-use crate::constants::hardware::{SCALE_FACTOR, SCREEN_HEIGHT, SCREEN_SIZE, SCREEN_WIDTH};
+use crate::constants::hardware::{SCALE_FACTOR, INTERNAL_SCREEN_HEIGHT, SCREEN_SIZE, INTERNAL_SCREEN_WIDTH};
 use crate::cpu::Pixel;
 
 pub struct DisplayDriver {
@@ -31,11 +31,11 @@ impl DisplayDriver {
     }
 
     pub fn draw(&mut self, display: [Pixel; SCREEN_SIZE]) {
-        for y in 0..SCREEN_HEIGHT {
-            for x in 0..SCREEN_WIDTH {
+        for y in 0..INTERNAL_SCREEN_HEIGHT {
+            for x in 0..INTERNAL_SCREEN_WIDTH {
                 let color = self.get_color(&display, x, y);
                 self.canvas.set_draw_color(color);
-                let x = (x * SCALE_FACTOR) as i32;
+                let x = (x * (SCALE_FACTOR as usize)) as i32;
                 let y = (y * SCALE_FACTOR) as i32;
 
                 self.canvas
@@ -55,6 +55,6 @@ impl DisplayDriver {
     }
 
     fn get_pixel(display: &[Pixel; SCREEN_SIZE], x: usize, y: usize) -> Pixel {
-        return display[x + y * SCREEN_WIDTH];
+        return display[x + y * INTERNAL_SCREEN_WIDTH];
     }
 }
