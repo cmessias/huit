@@ -4,7 +4,9 @@ use crate::drivers::display::DisplayDriver;
 use crate::drivers::input::InputDriver;
 use cpu::Cpu;
 use sdl2::Sdl;
+use std::env;
 use std::fs::File;
+
 mod chip8;
 mod constants;
 mod cpu;
@@ -18,7 +20,9 @@ fn main() {
     let cpu = Cpu::new();
 
     let mut chip8 = Chip8::new(cpu, display, input);
-    let rom = File::open("roms/tetris.ch8").unwrap();
+    let rom_path = env::args().skip(1).next()
+        .expect("Rom path must be provided as argument");
+    let rom = File::open(rom_path).unwrap();
     chip8.load(rom);
     chip8.run();
 
